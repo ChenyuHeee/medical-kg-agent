@@ -9,6 +9,18 @@
 
 ## 2. 启动
 
+### 2.1 一键 Docker（推荐，5 分钟可复现）
+
+```bash
+cp .env.example .env          # 然后把 MODELSCOPE_API_KEY 填进去
+docker-compose up -d --build  # 构建并后台启动
+open http://localhost:8000/
+```
+
+容器内会挂载 `./data` 与 `./textbooks`，所有图谱、向量、日志均落盘到本地，重启不丢。
+
+### 2.2 本地 Python（开发模式）
+
 ```bash
 # 1) 装依赖
 python -m venv .venv && source .venv/bin/activate

@@ -776,7 +776,7 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
   <button class="h-icon-btn" @click="rightCollapsed=!rightCollapsed" :title="rightCollapsed?'展开右侧面板':'折叠右侧面板'">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
   </button>
-  <a :href="_u('/textbook')" target="_blank" class="h-textbook-btn" title="阅读整合教材">📖 整合教材</a>
+  <a :href="apiUrl('/textbook')" target="_blank" class="h-textbook-btn" title="阅读整合教材">📖 整合教材</a>
 </header>
 
 <div class="main">
@@ -923,7 +923,7 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
         <button class="btn" @click.stop="activeTab='rag'">
           💬 直接向教材提问
         </button>
-        <button class="btn" style="border-color:var(--indigo-bd);color:var(--indigo);" @click.stop="window.open(_u('/textbook'),'_blank')">
+        <button class="btn" style="border-color:var(--indigo-bd);color:var(--indigo);" @click.stop="window.open(apiUrl('/textbook'),'_blank')">
           📖 阅读整合教材
         </button>
       </div>
@@ -2744,7 +2744,7 @@ createApp({
       onSearch, clearSearch, setLayout, rerender, toggleCat, toggleRel,
       resetFilters, resetView, exportPNG,
       openNode, focusNodeById, copyNodeJSON, copyText, askAboutNode,
-      pdfHref, openPdf, _u,
+      pdfHref, openPdf, apiUrl: _u,
       loadNodeSources, openPdfPreview, refreshPdf,
       startJob, openJobLog, cancelJob, retryJob,
       loadWorkspaces, setActiveWorkspace, openWsEditor, saveWorkspace, deleteWorkspace,
