@@ -828,48 +828,48 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
 
       <div class="es-cta">
         <button class="btn pri" @click.stop="loadGraphMerged">
-          🌐 看跨教材整合图（推荐）
+          🌐 查看完整知识图谱
         </button>
         <button class="btn" @click.stop="loadGraphCompact">
-          ✦ 看压缩后的精华图
+          ✦ 只看核心要点
         </button>
         <button class="btn" @click.stop="activeTab='rag'">
-          💬 直接提问
+          💬 直接向教材提问
         </button>
       </div>
 
       <div class="es-flow">
         <div class="es-step" @click="welcomePickFirstBook" style="cursor:pointer">
           <div class="num">1</div>
-          <div class="lbl">📖 单本图谱</div>
-          <div class="desc">从左侧选一本教材，看它单独的实体-关系网。</div>
-          <div class="pill">点这里：随便挑一本</div>
+          <div class="lbl">📖 翻看单本教材</div>
+          <div class="desc">从左侧选一本，看这本教材讲了哪些概念、它们之间怎么关联。</div>
+          <div class="pill">随便挑一本试试</div>
         </div>
         <div class="es-step" @click="loadGraphMerged" style="cursor:pointer">
           <div class="num">2</div>
-          <div class="lbl">🌐 跨教材合并</div>
-          <div class="desc">7 张图实体对齐去重，得到全局合并图，看哪些概念被多本教材共讲。</div>
-          <div class="pill">点这里：加载合并图</div>
+          <div class="lbl">🌐 看全局知识网</div>
+          <div class="desc">7 本书的知识点拼在一起，同一个概念在不同书里怎么说法不同？一目了然。</div>
+          <div class="pill">查看完整知识图谱</div>
         </div>
         <div class="es-step" @click="loadGraphCompact" style="cursor:pointer">
           <div class="num">3</div>
-          <div class="lbl">✦ 压缩到 ≤30%</div>
-          <div class="desc">合并后再做精华提取，得到一份只保留核心知识点的精华图谱。</div>
-          <div class="pill">点这里：加载精华图</div>
+          <div class="lbl">✦ 只看核心</div>
+          <div class="desc">去重提纯后的精华版——原文 10% 的字数讲清主干，不遗漏关键前置依赖。</div>
+          <div class="pill">查看精华版</div>
         </div>
         <div class="es-step" @click="activeTab='chat'" style="cursor:pointer">
           <div class="num">4</div>
-          <div class="lbl">🗣️ 学科老师对话</div>
-          <div class="desc">老师可以让智能体调整整合方案，多轮迭代优化。</div>
-          <div class="pill">点这里：进入对话</div>
+          <div class="lbl">🗣️ 跟知识库对话</div>
+          <div class="desc">扮演学科老师，告诉智能体哪里不对，让它调整——合并、拆分、补漏都可以。</div>
+          <div class="pill">开始对话</div>
         </div>
       </div>
 
       <div class="es-stats">
         <div class="es-stat"><div class="v">7</div><div class="k">本教材</div></div>
-        <div class="es-stat"><div class="v">{{ welcomeStats.merged_nodes }}</div><div class="k">知识节点</div></div>
-        <div class="es-stat"><div class="v">{{ welcomeStats.merged_edges }}</div><div class="k">关系边</div></div>
-        <div class="es-stat"><div class="v">{{ welcomeStats.ratio_pct }}%</div><div class="k">压缩到原文</div></div>
+        <div class="es-stat"><div class="v">{{ welcomeStats.merged_nodes }}</div><div class="k">医学概念</div></div>
+        <div class="es-stat"><div class="v">{{ welcomeStats.ratio_pct }}%</div><div class="k">浓缩到原文</div></div>
+        <div class="es-stat"><div class="v">即问即答</div><div class="k">RAG 检索</div></div>
       </div>
     </div>
 
@@ -965,10 +965,10 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
       <!-- ============== MERGE TAB ============== -->
       <template v-if="activeTab==='merge'">
         <div class="tab-intro">
-          <b>整合工作流：</b>把 7 本教材里指向同一个概念的节点合并为一个，再按需要压缩。每条决策都可撤销。
+          <b>给知识库再加教材：</b>导入新教材后点这里，智能体会把新教材里的概念和已有 7 本对齐，去重后纳入图谱。每条决策都可撤销。
         </div>
         <div style="margin-bottom:12px;">
-          <div style="font-size:11px;color:var(--ink-3);margin-bottom:8px;">跨教材实体对齐 → 整合 → 压缩</div>
+          <div style="font-size:11px;color:var(--ink-3);margin-bottom:8px;">把新教材并进来 → 跨书去重 → 压缩到精华</div>
           <button class="btn pri" @click="runMerge" :disabled="merging" style="width:100%;justify-content:center;margin-bottom:8px;">
             <span v-if="merging" class="spin"></span>
             {{ merging ? '对齐进行中...' : '执行实体对齐' }}
@@ -1032,13 +1032,13 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
       <!-- ============== RAG TAB ============== -->
       <template v-if="activeTab==='rag'">
         <div class="tab-intro" style="margin:12px 14px 0;">
-          <b>问题检索：</b>在 7 本教材中检索相关段落，用 LLM 生成带出处引用的回答。GraphRAG 模式还会沿知识图谱拓展上下文。
+          <b>向 7 本教材提问：</b>系统会从教材原文中找出最相关的段落，给你一段带出处的答案。点引用可展开原文，点实体可在图谱里高亮。
         </div>
         <div class="msgs">
           <div v-if="!ragHistory.length && !ragAsking" class="empty">
             <div class="icon">🔬</div>
-            <div class="t">RAG 问答</div>
-            <div class="h">基于 7 本医学教材 4284 块文本检索 · GraphRAG 模式还会沿知识图谱扩展上下文</div>
+            <div class="t">向 7 本教材提问</div>
+            <div class="h">已读完 7 本医学教材 · 共 4284 段原文 · 智能体会从教材里找答案，并标出处</div>
             <div style="margin-top:14px;display:flex;flex-direction:column;gap:6px;">
               <button v-for="q in ragSamples" :key="q" class="btn sm" @click="ragQuestion=q;askRag()" style="font-size:10px;">{{ q }}</button>
             </div>
@@ -1103,13 +1103,13 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
       <!-- ============== CHAT TAB ============== -->
       <template v-if="activeTab==='chat'">
         <div class="tab-intro" style="margin:12px 14px 0;">
-          <b>多轮对话：</b>学科老师用自然语言告诉 Agent 怎么修改整合方案（合并 / 拆分 / 删节点），改动实时写回图谱，每条可撤销。
+          <b>跟知识库聊：</b>当老师发现哪个概念讲混了、漏了或重复了，直接用一句话告诉智能体，它会立刻调整图谱（合并 / 拆分 / 删节点），每一步都可撤销。
         </div>
         <div class="msgs" ref="chatMsgs">
           <div v-if="!chatHistory.length && !chatAsking" class="empty">
             <div class="icon">💬</div>
-            <div class="t">多轮对话 · 整合方案迭代</div>
-            <div class="h">用自然语言指挥 Agent 调整图谱：合并 / 拆分 / 删除节点，每条改动都可撤销。</div>
+            <div class="t">跟知识库对话</div>
+            <div class="h">直接告诉智能体哪里讲得不对，它会立刻调整图谱（合并 / 拆分 / 删节点），每条改动都可撤销。</div>
             <div style="margin-top:14px;display:flex;flex-direction:column;gap:6px;">
               <button v-for="q in chatSamples" :key="q" class="btn sm" @click="chatInput=q;sendChat()" style="font-size:10px;">{{ q }}</button>
             </div>
@@ -1150,7 +1150,7 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
       <!-- ============== REPORT TAB ============== -->
       <template v-if="activeTab==='report'">
         <div class="tab-intro">
-          <b>压缩报告：</b>这里看 7 本教材压缩前后的字数、压缩比，以及哪些概念被多本书共讲（交集高 = 重点）。
+          <b>整合成果一览：</b>7 本教材原本多少字，整合后只剩多少字；哪些概念被多本书共同讲到（共讲越多 = 越是核心）。
         </div>
         <div class="kpi-grid">
           <div class="kpi-card">
@@ -1337,12 +1337,12 @@ createApp({
     const searchHits = ref(-1);
     const searchInput = ref(null);
 
-    const activeTab = ref('merge');
+    const activeTab = ref('rag');
     const tabs = [
-      { id:'merge',  label:'整合' },
-      { id:'rag',    label:'RAG 问答' },
-      { id:'chat',   label:'对话' },
-      { id:'report', label:'报告' },
+      { id:'rag',    label:'💬 提问' },
+      { id:'chat',   label:'🗣 对话' },
+      { id:'report', label:'📊 成果' },
+      { id:'merge',  label:'⚙ 扩展教材' },
     ];
 
     const layout = ref('force');
