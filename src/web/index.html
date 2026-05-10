@@ -380,6 +380,13 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
 }
 .tab-intro b { color: var(--ink); }
 
+/* Workspace bar */
+.ws-bar { padding: 6px 10px; background: var(--surface-2); border: 1px solid var(--line-2);
+  border-radius: var(--r-sm); margin-bottom: 10px; }
+.ws-row { display: flex; align-items: center; gap: 6px; }
+.ws-select { flex: 1; padding: 4px 6px; border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--ink); font-size: 11px; cursor: pointer; }
+
 /* PDF / Job log drawer */
 .pdf-drawer {
   position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 800;
@@ -679,6 +686,23 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
       <span class="ph-count">{{ books.length }} 本</span>
     </div>
     <div class="panel-body">
+      <!-- Workspace switcher -->
+      <div class="ws-bar">
+        <div class="ws-row">
+          <span style="font-size:10px;color:var(--ink-3);">工作区</span>
+          <select v-model="activeWsId" @change="setActiveWorkspace(activeWsId)" class="ws-select">
+            <option v-for="w in workspaces" :key="w.id" :value="w.id">
+              {{ w.name }} ({{ w.book_ids.length }})
+            </option>
+          </select>
+          <button class="btn sm" @click="openWsEditor(null)" title="新建工作区">＋</button>
+          <button class="btn sm" v-if="activeWs" @click="openWsEditor(activeWs)" title="编辑当前工作区">✎</button>
+        </div>
+        <div v-if="activeWs && activeWs.id !== 'default'" style="font-size:9px;color:var(--ink-3);margin-top:3px;">
+          仅显示 {{ activeWs.book_ids.length }} 本 · 跑管线只覆盖当前工作区
+        </div>
+      </div>
+
       <div class="upload-zone" :class="{'drag-over': dragOver}"
            @click="$refs.fileInput.click()"
            @dragover.prevent="dragOver=true"
@@ -729,6 +753,16 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
       <button class="btn sm" style="width:100%;justify-content:center;"
               :class="{amb: graphMode==='compact'}" @click="loadGraphCompact">
         ✦ 整合精华图
+      </button>
+
+      <div class="section-title">工作区操作</div>
+      <button class="btn sm" style="width:100%;justify-content:center;margin-bottom:4px;"
+              @click="runWorkspaceMerge" :disabled="!activeWs || !activeWs.book_ids.length">
+        ⚙ 跑整合（{{ activeWs?activeWs.book_ids.length:0 }} 本）
+      </button>
+      <button class="btn sm" style="width:100%;justify-content:center;"
+              @click="runWorkspaceCompress" :disabled="!activeWs || !activeWs.book_ids.length">
+        ✦ 跑压缩（当前工作区）
       </button>
     </div>
   </aside>
@@ -1180,8 +1214,40 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
   <div v-for="t in toasts" :key="t.id" :class="['toast', t.kind]">{{ t.msg }}</div>
 </div>
 
-<!-- PDF PREVIEW DRAWER -->
-<div v-if="pdfPreview.open" class="pdf-drawer" @click.self="pdfPreview.open=false">
+<!-- WORKSPACE EDITOR -->
+<div v-if="wsEditor.open" class="help-overlay" @click.self="wsEditor.open=false">
+  <div class="help-card" style="max-width:540px;" @click.stop>
+    <h2>{{ wsEditor.id ? '编辑工作区' : '新建工作区' }}</h2>
+    <div style="margin-top:14px;">
+      <label style="font-size:11px;color:var(--ink-3);">名称</label>
+      <input v-model="wsEditor.name" placeholder="例如：循环系统专项"
+             style="width:100%;margin-top:4px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface);color:var(--ink);font-size:13px;">
+    </div>
+    <div style="margin-top:14px;">
+      <label style="font-size:11px;color:var(--ink-3);">包含教材（{{ wsEditor.book_ids.length }} / {{ books.length }}）</label>
+      <div style="margin-top:6px;max-height:280px;overflow:auto;border:1px solid var(--line);border-radius:var(--r-sm);">
+        <label v-for="b in books" :key="b.book_id"
+               style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line-2);cursor:pointer;font-size:12px;">
+          <input type="checkbox" :value="b.book_id" v-model="wsEditor.book_ids">
+          <span style="flex:1;color:var(--ink);">{{ b.title || b.book_id }}</span>
+          <span style="font-size:10px;color:var(--ink-3);">{{ fmtSize(b.total_chars||0) }}字</span>
+        </label>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:6px;">
+        <button class="btn sm" @click="wsEditor.book_ids = books.map(b=>b.book_id)">全选</button>
+        <button class="btn sm" @click="wsEditor.book_ids = []">清空</button>
+      </div>
+    </div>
+    <div style="margin-top:18px;display:flex;gap:8px;justify-content:flex-end;">
+      <button v-if="wsEditor.id && wsEditor.id!=='default'" class="btn sm" style="color:var(--rose);"
+              @click="deleteWorkspace(wsEditor.id)">🗑 删除</button>
+      <button class="btn sm" @click="wsEditor.open=false">取消</button>
+      <button class="btn sm pri" @click="saveWorkspace">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- PDF PREVIEW DRAWER --><div v-if="pdfPreview.open" class="pdf-drawer" @click.self="pdfPreview.open=false">
   <div class="pdf-card">
     <div class="pdf-head">
       <div>
@@ -1285,6 +1351,11 @@ createApp({
     const pdfPreview = reactive({ open: false, book: '', page: 1, url: '' });
     const jobLog = reactive({ open: false, jobId: '', book: '', stage: '', status: '', text: '', autoFollow: true, _since: 0, _timer: null });
     const jobLogPre = ref(null);
+
+    const workspaces = ref([]);
+    const activeWsId = ref('default');
+    const activeWs = computed(() => workspaces.value.find(w => w.id === activeWsId.value) || null);
+    const wsEditor = reactive({ open: false, id: '', name: '', book_ids: [] });
 
     const ragAsking = ref(false);
     const ragQuestion = ref('');
@@ -1469,7 +1540,7 @@ createApp({
       graphLoading.value = false;
     }
 
-    const hasGraph = computed(() => cachedNodes.length > 0);
+    const hasGraph = ref(false);
 
     function computeBookCoverage(nodes) {
       const cnt = {};
@@ -1483,6 +1554,7 @@ createApp({
 
     function renderGraph(nodes, edges) {
       cachedNodes = nodes || [];
+      hasGraph.value = (nodes || []).length > 0;
       cachedEdges = edges || [];
 
       // category list with counts
@@ -1871,6 +1943,63 @@ createApp({
       jobLog._timer = setInterval(_pollJobLog, 1000);
     }
 
+    /* ============= WORKSPACES ============= */
+    async function loadWorkspaces() {
+      const r = await api('/api/workspaces');
+      if (r?.workspaces) {
+        workspaces.value = r.workspaces;
+        activeWsId.value = r.active_id || 'default';
+      }
+    }
+    async function setActiveWorkspace(wid) {
+      activeWsId.value = wid;
+      await api(`/api/workspaces/${wid}/activate`, { method:'POST' });
+      toast(`已切换到「${activeWs.value?.name || wid}」`, 'ok');
+    }
+    function openWsEditor(ws) {
+      if (ws) { wsEditor.id = ws.id; wsEditor.name = ws.name; wsEditor.book_ids = [...ws.book_ids]; }
+      else { wsEditor.id = ''; wsEditor.name = ''; wsEditor.book_ids = []; }
+      wsEditor.open = true;
+    }
+    async function saveWorkspace() {
+      const body = JSON.stringify({ name: wsEditor.name, book_ids: wsEditor.book_ids });
+      let r;
+      if (wsEditor.id) {
+        r = await api(`/api/workspaces/${wsEditor.id}`, { method:'PUT', body });
+      } else {
+        r = await api('/api/workspaces', { method:'POST', body });
+      }
+      if (!r?.id) { toast('保存失败', 'err'); return; }
+      toast('已保存工作区', 'ok');
+      wsEditor.open = false;
+      await loadWorkspaces();
+      if (!wsEditor.id) await setActiveWorkspace(r.id);
+    }
+    async function deleteWorkspace(wid) {
+      if (!confirm('确认删除该工作区？教材数据不会被删除。')) return;
+      const r = await api(`/api/workspaces/${wid}`, { method:'DELETE' });
+      if (!r?.ok) { toast('删除失败', 'err'); return; }
+      toast('已删除', 'ok');
+      wsEditor.open = false;
+      await loadWorkspaces();
+    }
+    async function runWorkspaceMerge() {
+      const ws = activeWs.value;
+      if (!ws?.book_ids?.length) { toast('当前工作区无教材', 'err'); return; }
+      const r = await api('/api/jobs/run', { method:'POST',
+        body: JSON.stringify({ stage:'merge', books: ws.book_ids }) });
+      if (!r?.job_id) { toast('启动失败', 'err'); return; }
+      openJobLog(r.job_id, '', `merge[${ws.name}]`);
+    }
+    async function runWorkspaceCompress() {
+      const ws = activeWs.value;
+      if (!ws?.book_ids?.length) { toast('当前工作区无教材', 'err'); return; }
+      const r = await api('/api/jobs/run', { method:'POST',
+        body: JSON.stringify({ stage:'compress', books: ws.book_ids }) });
+      if (!r?.job_id) { toast('启动失败', 'err'); return; }
+      openJobLog(r.job_id, '', `compress[${ws.name}]`);
+    }
+
     /* ============= SEARCH ============= */
     let searchT = null;
     function onSearch() {
@@ -2061,8 +2190,14 @@ createApp({
     /* ============= COMPUTED / FILTERS ============= */
     const filteredBooks = computed(() => {
       const q = bookFilter.value.trim().toLowerCase();
-      if (!q) return books.value;
-      return books.value.filter(b => (b.title || '').toLowerCase().includes(q) || b.book_id.toLowerCase().includes(q));
+      let arr = books.value;
+      // workspace filter (default = show all)
+      if (activeWs.value && activeWs.value.id !== 'default' && activeWs.value.book_ids?.length) {
+        const set = new Set(activeWs.value.book_ids);
+        arr = arr.filter(b => set.has(b.book_id));
+      }
+      if (!q) return arr;
+      return arr.filter(b => (b.title || '').toLowerCase().includes(q) || b.book_id.toLowerCase().includes(q));
     });
 
     const kpiOriginal = computed(() => fmtChars(cs.value.original_chars || cs.value.original_total_chars));
@@ -2143,6 +2278,7 @@ createApp({
       await checkHealth();
       if (backendOnline.value) {
         await loadBooks();
+        await loadWorkspaces();
         // auto-load merged graph if present
         const data = await api('/api/graph/merged');
         if (data?.nodes?.length) {
@@ -2172,6 +2308,7 @@ createApp({
       merging, compressing, decisions, dcFilter, dcLimit, mergeStats,
       compressTarget, compressPresets,
       nodeSources, pdfPreview, jobLog, jobLogPre,
+      workspaces, activeWsId, activeWs, wsEditor,
       filteredDecisions,
       ragAsking, ragQuestion, ragMode, ragHistory, ragStatusText, ragSamples,
       chatAsking, chatInput, chatHistory, chatMsgs, sid, chatSamples,
@@ -2188,6 +2325,8 @@ createApp({
       openNode, focusNodeById, copyNodeJSON, copyText, askAboutNode,
       loadNodeSources, openPdfPreview, refreshPdf,
       startJob, openJobLog, cancelJob, retryJob,
+      loadWorkspaces, setActiveWorkspace, openWsEditor, saveWorkspace, deleteWorkspace,
+      runWorkspaceMerge, runWorkspaceCompress,
       runMerge, runCompress, undoDecision, countByAction,
       askRag, onRagKey, renderPath,
       sendChat, onChatKey, undoChatEdit,

@@ -124,6 +124,96 @@ def list_books():
     return {"books": list(_scan_books().values())}
 
 
+# --------------- Workspaces (book groupings) ---------------
+
+WORKSPACES_FILE = Path("data/workspaces.json")
+
+
+def _load_workspaces() -> dict:
+    if WORKSPACES_FILE.exists():
+        try:
+            return json.loads(WORKSPACES_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    # default: one workspace containing all books
+    all_bids = sorted(_scan_books().keys())
+    doc = {
+        "active_id": "default",
+        "workspaces": [
+            {"id": "default", "name": "全部教材", "book_ids": all_bids,
+             "color": "#6366f1", "created_at": time.time()}
+        ],
+    }
+    WORKSPACES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    WORKSPACES_FILE.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+    return doc
+
+
+def _save_workspaces(doc: dict) -> None:
+    WORKSPACES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    WORKSPACES_FILE.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+class WorkspaceReq(BaseModel):
+    name: str
+    book_ids: list[str] = []
+    color: str | None = None
+
+
+@app.get("/api/workspaces")
+def workspaces_list():
+    return _load_workspaces()
+
+
+@app.post("/api/workspaces")
+def workspaces_create(req: WorkspaceReq):
+    doc = _load_workspaces()
+    wid = f"ws-{int(time.time()*1000)}-{uuid.uuid4().hex[:4]}"
+    ws = {"id": wid, "name": req.name.strip() or "未命名", "book_ids": list(req.book_ids),
+          "color": req.color or "#6366f1", "created_at": time.time()}
+    doc["workspaces"].append(ws)
+    _save_workspaces(doc)
+    return ws
+
+
+@app.put("/api/workspaces/{ws_id}")
+def workspaces_update(ws_id: str, req: WorkspaceReq):
+    doc = _load_workspaces()
+    for w in doc["workspaces"]:
+        if w["id"] == ws_id:
+            w["name"] = req.name.strip() or w["name"]
+            w["book_ids"] = list(req.book_ids)
+            if req.color: w["color"] = req.color
+            _save_workspaces(doc)
+            return w
+    raise HTTPException(404, "workspace not found")
+
+
+@app.delete("/api/workspaces/{ws_id}")
+def workspaces_delete(ws_id: str):
+    doc = _load_workspaces()
+    if ws_id == "default":
+        raise HTTPException(400, "cannot delete default workspace")
+    before = len(doc["workspaces"])
+    doc["workspaces"] = [w for w in doc["workspaces"] if w["id"] != ws_id]
+    if len(doc["workspaces"]) == before:
+        raise HTTPException(404, "workspace not found")
+    if doc.get("active_id") == ws_id:
+        doc["active_id"] = "default"
+    _save_workspaces(doc)
+    return {"ok": True, "active_id": doc["active_id"]}
+
+
+@app.post("/api/workspaces/{ws_id}/activate")
+def workspaces_activate(ws_id: str):
+    doc = _load_workspaces()
+    if not any(w["id"] == ws_id for w in doc["workspaces"]):
+        raise HTTPException(404, "workspace not found")
+    doc["active_id"] = ws_id
+    _save_workspaces(doc)
+    return {"ok": True, "active_id": ws_id}
+
+
 # --------------- Upload + Parse ---------------
 
 ALLOWED_EXT = {".pdf", ".md", ".markdown", ".txt", ".docx"}
@@ -501,6 +591,7 @@ _JOBS: dict[str, dict[str, Any]] = {}  # job_id -> {pid, status, log_path, cmd, 
 
 class JobReq(BaseModel):
     book_id: str | None = None         # if given, runs for one book; else for all
+    books: list[str] | None = None     # explicit book list for merge/compress/run (e.g. workspace)
     stage: str = "all"                 # "all" | "extract" | "build" | "merge" | "compress"
 
 
@@ -547,13 +638,18 @@ def jobs_run(req: JobReq):
         cmd = [py, "-u", "-m", "src.pipeline", "build", "--book", bid]
     elif req.stage == "merge":
         cmd = [py, "-u", "-m", "src.pipeline", "merge"]
+        if req.books: cmd += ["--books", *req.books]
     elif req.stage == "compress":
         cmd = [py, "-u", "-m", "src.pipeline", "compress"]
+        if req.books: cmd += ["--books", *req.books]
     elif req.stage == "all":
         # Full per-book pipeline: extract+build (merge/compress are global)
-        if not bid:
-            raise HTTPException(400, "all-stage requires book_id")
-        cmd = [py, "-u", "-m", "src.pipeline", "run", "--books", bid]
+        if bid:
+            cmd = [py, "-u", "-m", "src.pipeline", "run", "--books", bid]
+        elif req.books:
+            cmd = [py, "-u", "-m", "src.pipeline", "run", "--books", *req.books]
+        else:
+            raise HTTPException(400, "all-stage requires book_id or books")
     else:
         raise HTTPException(400, f"unknown stage: {req.stage}")
     job_id = _spawn_job(cmd, bid, req.stage)
