@@ -1,0 +1,23 @@
+# Core
+openai>=1.40.0
+networkx>=3.2
+
+# PDF / 解析
+PyMuPDF>=1.24.0
+pdfplumber>=0.11.0
+python-docx>=1.1.0
+
+# RAG
+sentence-transformers>=3.0.0
+chromadb>=0.5.0
+rank-bm25>=0.2.2
+
+# Backend
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+pydantic>=2.8.0
+
+# Utils
+numpy>=1.26.0
+tqdm>=4.66.0

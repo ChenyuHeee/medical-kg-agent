@@ -1,0 +1,77 @@
+"""T-07: Compress a merged graph to <=30% by node count.
+
+Scoring: importance = n_books * a + log(1 + n_mentions) * b + degree * c
+Keep top-K nodes such that K / sum_of_input_book_node_counts <= 0.30,
+then induce subgraph and prune isolated singletons.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+from pathlib import Path
+from typing import Any
+
+
+def score_node(n: dict[str, Any], degree: int) -> float:
+    n_books = n.get("n_books", len(n.get("book_ids", [])))
+    n_ment = n.get("n_mentions", 1)
+    return (
+        2.0 * n_books          # cross-book is gold
+        + 1.0 * math.log1p(n_ment)
+        + 0.5 * math.log1p(degree)
+    )
+
+
+def compress(
+    merged: dict[str, Any],
+    *,
+    input_total_nodes: int,
+    target_ratio: float = 0.30,
+) -> dict[str, Any]:
+    nodes = merged["nodes"]
+    edges = merged["edges"]
+
+    # degree
+    degree: dict[str, int] = {}
+    for e in edges:
+        degree[e["source"]] = degree.get(e["source"], 0) + 1
+        degree[e["target"]] = degree.get(e["target"], 0) + 1
+
+    scored = [(score_node(n, degree.get(n["id"], 0)), n) for n in nodes]
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    # budget: at most target_ratio * input_total_nodes
+    budget = max(1, int(target_ratio * input_total_nodes))
+    kept = scored[:budget]
+    kept_ids = {n["id"] for _, n in kept}
+
+    pruned_nodes = [n for _, n in kept]
+    pruned_edges = [e for e in edges if e["source"] in kept_ids and e["target"] in kept_ids]
+
+    return {
+        "nodes": pruned_nodes,
+        "edges": pruned_edges,
+        "compression": {
+            "input_total_nodes": input_total_nodes,
+            "merged_nodes": len(nodes),
+            "kept_nodes": len(pruned_nodes),
+            "kept_edges": len(pruned_edges),
+            "node_ratio_vs_input": round(len(pruned_nodes) / max(1, input_total_nodes), 4),
+            "node_ratio_vs_merged": round(len(pruned_nodes) / max(1, len(nodes)), 4),
+            "target_ratio": target_ratio,
+            "meets_target": len(pruned_nodes) <= budget,
+        },
+    }
+
+
+def compress_file(merged_path: Path, out_path: Path, *, input_total_nodes: int, target_ratio: float = 0.30) -> dict[str, Any]:
+    merged = json.loads(Path(merged_path).read_text("utf-8"))
+    result = compress(merged, input_total_nodes=input_total_nodes, target_ratio=target_ratio)
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    return result["compression"]
+
+
+__all__ = ["compress", "compress_file", "score_node"]

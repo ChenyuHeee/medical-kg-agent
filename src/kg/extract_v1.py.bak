@@ -1,0 +1,179 @@
+"""T-04: Extract entities & relations from a chunk via LLM.
+
+Input:  Chunk dict (see ARCHITECTURE.md §2.2)
+Output: Triple list (see ARCHITECTURE.md §2.3)
+
+The prompt is locked to medical-textbook domain. We ask the model for a
+JSON array; tolerate empty arrays (some chunks are pure boilerplate).
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from pathlib import Path
+from typing import Any, Iterable
+
+from ..llm import LLMClient, LLMJSONParseError, build_messages, get_default_client
+
+log = logging.getLogger(__name__)
+
+ALLOWED_TYPES = [
+    "Disease",
+    "Symptom",
+    "Cell",
+    "Tissue",
+    "Organ",
+    "System",
+    "Process",
+    "Property",
+    "Drug",
+    "Pathogen",
+    "Concept",
+]
+
+SYSTEM_PROMPT = f"""你是一名医学知识图谱抽取助手。任务：从给定教材片段中抽取实体-关系三元组。
+
+要求：
+1. 只输出 JSON 数组，不要任何解释、不要 markdown 包裹（外层不要 ```）。
+2. 每个元素结构：
+   {{"head": str, "head_type": str, "relation": str, "tail": str, "tail_type": str, "evidence": str, "confidence": float}}
+3. head_type / tail_type 必须从以下集合中选：{ALLOWED_TYPES}
+4. relation 用简洁中文动宾或名词短语，如 "属于" "导致" "位于" "调节" "由...组成" "具有"。
+5. evidence 是支持该三元组的原文片段，不超过 80 个字符，必须是原文出现的子串或近似子串。
+6. confidence 是 0.0~1.0 的浮点数。
+7. 只抽取明确事实，避免推测；同一实体名称在 head/tail 中保持一致。
+8. 如果片段没有可抽取的医学知识，输出空数组 []。
+9. 单次输出三元组数量上限 25 条，优先保留信息量大的。"""
+
+USER_TEMPLATE = """【教材】{book_id}
+【章节】{chapter} / {section}
+【正文】
+{text}
+
+请输出 JSON 数组。"""
+
+
+def _build_user(chunk: dict[str, Any]) -> str:
+    return USER_TEMPLATE.format(
+        book_id=chunk.get("book_id", ""),
+        chapter=chunk.get("chapter", ""),
+        section=chunk.get("section", ""),
+        text=chunk.get("text", "").strip(),
+    )
+
+
+def _validate_triple(t: dict[str, Any], chunk_id: str) -> dict[str, Any] | None:
+    """Return a normalized triple dict, or None if invalid."""
+    try:
+        head = str(t["head"]).strip()
+        tail = str(t["tail"]).strip()
+        relation = str(t["relation"]).strip()
+        head_type = str(t.get("head_type", "Concept")).strip() or "Concept"
+        tail_type = str(t.get("tail_type", "Concept")).strip() or "Concept"
+    except (KeyError, TypeError):
+        return None
+
+    if not head or not tail or not relation:
+        return None
+    if head == tail:
+        return None
+    if head_type not in ALLOWED_TYPES:
+        head_type = "Concept"
+    if tail_type not in ALLOWED_TYPES:
+        tail_type = "Concept"
+
+    evidence = str(t.get("evidence", ""))[:80]
+    try:
+        conf = float(t.get("confidence", 0.5))
+    except (TypeError, ValueError):
+        conf = 0.5
+    conf = max(0.0, min(1.0, conf))
+
+    return {
+        "chunk_id": chunk_id,
+        "head": head,
+        "head_type": head_type,
+        "relation": relation,
+        "tail": tail,
+        "tail_type": tail_type,
+        "evidence": evidence,
+        "confidence": conf,
+    }
+
+
+def extract_triples(
+    chunk: dict[str, Any],
+    *,
+    client: LLMClient | None = None,
+    max_tokens: int = 2048,
+) -> list[dict[str, Any]]:
+    """Extract triples from one chunk. Never raises; returns [] on failure."""
+    client = client or get_default_client()
+    chunk_id = chunk.get("chunk_id", "?")
+    msgs = build_messages(system=SYSTEM_PROMPT, user=_build_user(chunk))
+
+    try:
+        raw = client.chat_json(msgs, max_tokens=max_tokens)
+    except LLMJSONParseError as e:
+        log.warning("chunk=%s json parse failed: %s", chunk_id, e)
+        return []
+    except Exception as e:
+        log.warning("chunk=%s llm call failed: %s", chunk_id, e)
+        return []
+
+    if not isinstance(raw, list):
+        log.warning("chunk=%s expected list, got %s", chunk_id, type(raw).__name__)
+        return []
+
+    out: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        v = _validate_triple(item, chunk_id)
+        if v is not None:
+            out.append(v)
+    return out
+
+
+def extract_book(
+    chunks_path: Path,
+    out_path: Path,
+    *,
+    client: LLMClient | None = None,
+    limit: int | None = None,
+    progress_every: int = 10,
+) -> dict[str, int]:
+    """Run extraction over a chunks file -> triples file. Returns stats."""
+    chunks_path = Path(chunks_path)
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    chunks: list[dict[str, Any]] = json.loads(chunks_path.read_text("utf-8"))
+    if limit is not None:
+        chunks = chunks[:limit]
+
+    client = client or get_default_client()
+    all_triples: list[dict[str, Any]] = []
+    failed = 0
+
+    for i, ch in enumerate(chunks, 1):
+        triples = extract_triples(ch, client=client)
+        if not triples:
+            failed += 1
+        all_triples.extend(triples)
+        if i % progress_every == 0:
+            log.info("[%d/%d] triples=%d failed=%d", i, len(chunks), len(all_triples), failed)
+
+    out_path.write_text(
+        json.dumps(all_triples, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return {
+        "chunks": len(chunks),
+        "triples": len(all_triples),
+        "failed_chunks": failed,
+    }
+
+
+__all__ = ["extract_triples", "extract_book", "ALLOWED_TYPES"]

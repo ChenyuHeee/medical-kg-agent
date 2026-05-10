@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Knowledge Nexus · 医学知识整合智能体</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&family=LXGW+WenKai:ital,wght@0,300;0,400;0,700;1,300&family=Geist+Mono:wght@400;500&family=Geist:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+:root {
+  --paper: #faf7f2;
+  --paper-warm: #f5efe4;
+  --ink: #1a1a1a;
+  --ink-light: #4a4a4a;
+  --ink-muted: #8a8a80;
+  --border: #e5ded4;
+  --border-light: #f0ebe2;
+  --card: #ffffff;
+  --card-hover: #fdfaf5;
+  --accent-teal: #0d9488;
+  --accent-teal-bg: rgba(13,148,136,0.06);
+  --accent-teal-border: rgba(13,148,136,0.2);
+  --accent-amber: #d97706;
+  --accent-amber-bg: rgba(217,119,6,0.06);
+  --accent-amber-border: rgba(217,119,6,0.2);
+  --accent-rose: #be123c;
+  --accent-rose-bg: rgba(190,18,60,0.05);
+  --accent-indigo: #4338ca;
+  --accent-indigo-bg: rgba(67,56,202,0.05);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.06);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,0.08);
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --font-display: 'Playfair Display', 'LXGW WenKai', serif;
+  --font-body: 'Geist', 'LXGW WenKai', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', monospace;
+  --transition: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+html, body { height:100%; overflow:hidden; }
+body {
+  font-family: var(--font-body);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+#app { height:100vh; display:flex; flex-direction:column; }
+
+/* ---- header ---- */
+.header {
+  height: 52px; flex-shrink:0;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  display:flex; align-items:center; padding:0 24px; gap:12px;
+  z-index:100;
+}
+.header .logo {
+  font-family: var(--font-display);
+  font-size: 20px; font-weight: 600; color: var(--ink);
+  letter-spacing: -0.01em;
+}
+.header .logo span { color: var(--ink-muted); font-weight: 400; font-size: 12px; margin-left: 6px; font-family: var(--font-body); }
+.header .dot { width:7px; height:7px; border-radius:50%; background:var(--accent-teal); box-shadow: 0 0 6px rgba(13,148,136,0.4); }
+.header .dot.off { background: #d4cbc0; box-shadow: none; }
+.header .status-text { font-size: 11px; color: var(--ink-muted); }
+.header .spacer { flex:1; }
+.header .hint { font-size: 10px; color: var(--ink-muted); }
+
+/* ---- main ---- */
+.main { flex:1; display:flex; overflow:hidden; }
+
+/* ---- panels ---- */
+.panel {
+  display:flex; flex-direction:column;
+  overflow:hidden;
+}
+.panel.left {
+  width: 280px; flex-shrink:0;
+  background: var(--card);
+  border-right: 1px solid var(--border);
+}
+.panel.center { flex:1; position:relative; background: var(--paper); }
+.panel.right {
+  width: 400px; flex-shrink:0;
+  background: var(--card);
+  border-left: 1px solid var(--border);
+}
+
+.panel-head {
+  padding: 14px 20px; flex-shrink:0;
+  font-family: var(--font-display);
+  font-size: 14px; font-weight: 600;
+  letter-spacing: -0.01em;
+  border-bottom: 1px solid var(--border);
+  display:flex; align-items:center; gap:8px;
+  color: var(--ink);
+}
+.panel-body { flex:1; overflow-y:auto; padding:14px; }
+
+/* scrollbar */
+::-webkit-scrollbar { width:4px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+
+/* ---- left: book list ---- */
+.upload-zone {
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 20px; text-align:center; cursor:pointer;
+  transition: var(--transition);
+  margin-bottom:14px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  background: var(--paper-warm);
+}
+.upload-zone:hover, .upload-zone.drag-over {
+  border-color: var(--accent-teal);
+  background: var(--accent-teal-bg);
+  color: var(--accent-teal);
+}
+.upload-zone .uz-icon { font-size: 28px; margin-bottom:6px; }
+.upload-zone input { display:none; }
+
+.book-item {
+  border-radius: var(--radius-sm);
+  padding: 10px 14px; margin-bottom: 4px;
+  cursor:pointer; transition: var(--transition);
+  border: 1px solid transparent;
+}
+.book-item:hover { background: var(--paper-warm); }
+.book-item.active {
+  border-color: var(--accent-teal-border);
+  background: var(--accent-teal-bg);
+}
+.book-item .bname { font-weight: 500; font-size: 12px; margin-bottom: 2px; }
+.book-item .bmeta { font-size: 10px; color: var(--ink-muted); display:flex; gap:10px; align-items:center; }
+.book-item .bbadge {
+  font-size: 9px; padding: 1px 7px; border-radius: 10px;
+  font-weight: 500;
+}
+.bbadge.parsed { background: var(--accent-teal-bg); color: var(--accent-teal); }
+.bbadge.parsing { background: var(--accent-amber-bg); color: var(--accent-amber); }
+.bbadge.queued { background: rgba(67,56,202,0.06); color: var(--accent-indigo); }
+.bbadge.failed { background: var(--accent-rose-bg); color: var(--accent-rose); }
+.bbadge.uploaded { color: var(--ink-muted); background: var(--paper-warm); }
+
+/* ---- center: graph ---- */
+#kg-chart { width:100%; height:100%; }
+.graph-toolbar {
+  position:absolute; top:16px; right:16px; z-index:10;
+  display:flex; gap:6px;
+}
+.graph-toolbar button {
+  background: var(--card); border: 1px solid var(--border);
+  color: var(--ink-light); padding: 6px 12px;
+  border-radius: 20px; cursor:pointer;
+  font-size: 11px; font-family: var(--font-body);
+  transition: var(--transition); font-weight: 500;
+  box-shadow: var(--shadow-sm);
+}
+.graph-toolbar button:hover { border-color: var(--accent-teal); color: var(--accent-teal); }
+.graph-toolbar button.on { background: var(--accent-teal-bg); border-color: var(--accent-teal); color: var(--accent-teal); }
+.graph-search {
+  position:absolute; top:16px; left:16px; z-index:10;
+}
+.graph-search input {
+  background: var(--card); border: 1px solid var(--border);
+  color: var(--ink); padding: 7px 16px;
+  border-radius: 20px; font-size: 12px; width:220px;
+  outline:none; font-family: var(--font-body);
+  box-shadow: var(--shadow-sm); transition: var(--transition);
+}
+.graph-search input:focus { border-color: var(--accent-teal); box-shadow: var(--shadow-md); }
+.graph-search input::placeholder { color: var(--ink-muted); }
+
+.node-tooltip {
+  position:absolute; z-index:100;
+  background: var(--card); border:1px solid var(--border);
+  border-radius: var(--radius-lg); padding:16px 20px;
+  max-width:340px; pointer-events:none;
+  box-shadow: var(--shadow-lg);
+}
+.node-tooltip .tt-name {
+  font-family: var(--font-display);
+  font-size:18px; font-weight:600; margin-bottom:8px;
+  color: var(--ink);
+}
+.node-tooltip .tt-def { font-size:12px; color:var(--ink-light); margin-bottom:8px; line-height:1.6; }
+.node-tooltip .tt-meta { font-size:10px; color:var(--ink-muted); display:flex; gap:14px; flex-wrap:wrap; }
+.node-tooltip .tt-meta span { display:flex; align-items:center; gap:4px; }
+
+/* ---- right: tabs ---- */
+.tab-bar {
+  display:flex; border-bottom:1px solid var(--border);
+  flex-shrink:0; padding:0 4px;
+}
+.tab-btn {
+  padding: 10px 18px; font-size: 11px; font-weight: 500;
+  cursor:pointer; color: var(--ink-muted);
+  border-bottom:2px solid transparent;
+  transition: var(--transition); white-space:nowrap;
+  font-family: var(--font-body); background:none; border-top:none; border-left:none; border-right:none;
+}
+.tab-btn:hover { color: var(--ink-light); }
+.tab-btn.active { color: var(--accent-teal); border-bottom-color: var(--accent-teal); }
+
+/* ---- RAG ---- */
+.rag-input-row { display:flex; gap:8px; margin-bottom:12px; }
+.rag-input-row input {
+  flex:1; background:var(--paper-warm); border:1px solid var(--border);
+  color:var(--ink); padding:9px 14px; border-radius:var(--radius);
+  font-size:12px; outline:none; font-family:var(--font-body); transition:var(--transition);
+}
+.rag-input-row input:focus { border-color:var(--accent-teal); background:var(--card); }
+.rag-input-row select {
+  background:var(--paper-warm); border:1px solid var(--border);
+  color:var(--ink-light); padding:9px 10px; border-radius:var(--radius);
+  font-size:11px; outline:none; font-family:var(--font-body);
+}
+.rag-answer {
+  background:var(--paper-warm); border-radius:var(--radius-lg);
+  padding:18px; margin-top:12px; line-height:1.8;
+}
+.rag-answer .answer-text { font-size:13px; color:var(--ink); }
+.rag-answer .cite {
+  display:block; margin-top:10px; padding:8px 14px;
+  background:var(--card); border:1px solid var(--border-light);
+  border-radius:var(--radius-sm); font-size:11px; color:var(--ink-light);
+  cursor:pointer; transition:var(--transition);
+}
+.rag-answer .cite:hover { border-color:var(--accent-teal-border); background:var(--accent-teal-bg); }
+.rag-answer .chunk-expand {
+  margin-top:4px; padding:10px 14px;
+  background:var(--card); border-left:3px solid var(--accent-teal);
+  border-radius:0 var(--radius-sm) var(--radius-sm) 0;
+  font-size:11px; color:var(--ink-light); font-family:var(--font-mono);
+  line-height:1.6; max-height:140px; overflow-y:auto;
+}
+.rag-status { font-size:10px; color:var(--ink-muted); margin-bottom:8px; }
+
+/* ---- chat ---- */
+.chat-msgs { flex:1; overflow-y:auto; padding-right:2px; }
+.chat-msg {
+  margin-bottom:10px; padding:12px 16px; border-radius:var(--radius);
+  font-size:12px; line-height:1.7; animation:slideIn 0.25s ease;
+}
+@keyframes slideIn { from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
+.chat-msg.user { background:var(--paper-warm); margin-left:20px; }
+.chat-msg.agent {
+  background:var(--accent-teal-bg);
+  border-left:3px solid var(--accent-teal);
+  margin-right:20px;
+}
+.chat-msg .role { font-size:9px; font-weight:600; text-transform:uppercase; margin-bottom:4px; color:var(--ink-muted); letter-spacing:0.05em; }
+.chat-input-row { display:flex; gap:8px; margin-top:10px; }
+.chat-input-row input {
+  flex:1; background:var(--paper-warm); border:1px solid var(--border);
+  color:var(--ink); padding:9px 14px; border-radius:var(--radius);
+  font-size:12px; outline:none; font-family:var(--font-body); transition:var(--transition);
+}
+.chat-input-row input:focus { border-color:var(--accent-teal); background:var(--card); }
+
+/* decision cards */
+.decision-card {
+  background:var(--card); border:1px solid var(--border);
+  border-radius:var(--radius); padding:14px; margin-bottom:8px;
+  transition:var(--transition);
+}
+.decision-card:hover { border-color:var(--accent-teal-border); box-shadow:var(--shadow-sm); }
+.decision-card .dc-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+.decision-card .dc-action {
+  font-size:9px; font-weight:600; padding:2px 8px; border-radius:10px;
+  text-transform:uppercase; letter-spacing:0.04em;
+}
+.dc-action.merge { background:var(--accent-amber-bg); color:var(--accent-amber); }
+.dc-action.keep { background:var(--accent-teal-bg); color:var(--accent-teal); }
+.dc-action.remove { background:var(--accent-rose-bg); color:var(--accent-rose); }
+.decision-card .dc-reason { font-size:11px; color:var(--ink-light); }
+.decision-card .dc-confidence { font-size:10px; color:var(--ink-muted); font-family:var(--font-mono); }
+.decision-card .dc-undo {
+  font-size:10px; color:var(--accent-teal); cursor:pointer;
+  background:none; border:none; font-family:var(--font-body); font-weight:500;
+  transition:var(--transition);
+}
+.decision-card .dc-undo:hover { text-decoration:underline; }
+
+/* ---- report ---- */
+.stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px; }
+.stat-card {
+  background:var(--paper-warm); border-radius:var(--radius);
+  padding:16px; text-align:center;
+}
+.stat-card .stat-val { font-family:var(--font-display); font-size:26px; font-weight:700; color:var(--accent-teal); }
+.stat-card .stat-label { font-size:10px; color:var(--ink-muted); margin-top:4px; }
+.compress-bar {
+  height:8px; background:var(--border-light); border-radius:4px;
+  margin:10px 0; overflow:hidden;
+}
+.compress-bar .fill {
+  height:100%;
+  background:linear-gradient(90deg, var(--accent-teal), var(--accent-amber));
+  border-radius:4px; transition:width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ---- buttons ---- */
+.btn {
+  padding: 8px 18px; border-radius: 20px; font-size: 12px;
+  font-weight: 500; cursor:pointer; border:1px solid var(--border);
+  background:var(--card); color:var(--ink-light);
+  font-family:var(--font-body); transition:var(--transition);
+}
+.btn:hover { border-color:var(--accent-teal); color:var(--accent-teal); }
+.btn.pri { background:var(--accent-teal); border-color:var(--accent-teal); color:#fff; }
+.btn.pri:hover { background:#0f766e; border-color:#0f766e; color:#fff; }
+.btn.amb { background:var(--accent-amber-bg); border-color:var(--accent-amber-border); color:var(--accent-amber); }
+.btn.amb:hover { background:rgba(217,119,6,0.15); }
+.btn.sm { padding:5px 12px; font-size:10px; }
+
+/* loading */
+.spin { display:inline-block; width:14px; height:14px; border:2px solid var(--border); border-top-color:var(--accent-teal); border-radius:50%; animation:spin 0.6s linear infinite; }
+@keyframes spin { to{transform:rotate(360deg);} }
+
+/* empty */
+.empty { text-align:center; padding:40px 20px; color:var(--ink-muted); }
+.empty .icon { font-size:32px; margin-bottom:8px; opacity:0.5; }
+.empty p { font-size:11px; }
+</style>
+</head>
+<body>
+<div id="app">
+
+<header class="header">
+  <div class="logo">Knowledge Nexus<span>医学知识整合智能体</span></div>
+  <div class="spacer"></div>
+  <div :class="['dot', backendOnline ? '' : 'off']"></div>
+  <span class="status-text">{{ backendOnline ? 'API 在线' : '离线演示模式' }}</span>
+</header>
+
+<div class="main">
+
+  <!-- LEFT: BOOKS -->
+  <aside class="panel left">
+    <div class="panel-head">📚 教材管理</div>
+    <div class="panel-body">
+      <div class="upload-zone" :class="{ 'drag-over': dragOver }" @click="$refs.fileInput.click()" @dragover.prevent="dragOver=true" @dragleave="dragOver=false" @drop.prevent="handleDrop">
+        <div class="uz-icon">+</div>
+        <div>拖拽或点击上传教材</div>
+        <div style="font-size:9px;margin-top:2px;opacity:0.5;">支持 PDF · MD · TXT · DOCX</div>
+        <input type="file" ref="fileInput" multiple accept=".pdf,.md,.markdown,.txt,.docx" @change="handleFiles" style="display:none">
+      </div>
+
+      <div v-for="b in books" :key="b.book_id" :class="['book-item', selectedBook === b.book_id ? 'active' : '']" @click="selectBook(b.book_id)">
+        <div class="bname">{{ b.title || b.book_id }}</div>
+        <div class="bmeta">
+          <span>{{ fmtSize(b.total_chars || 0) }} 字</span>
+          <span v-if="b.chapters">{{ b.chapters }} 章</span>
+          <span :class="['bbadge', b.stage || 'uploaded']">{{ b.stage || '未知' }}</span>
+        </div>
+      </div>
+
+      <div v-if="!books.length" class="empty">
+        <div class="icon">📂</div><p>正在加载教材列表...</p>
+      </div>
+    </div>
+  </aside>
+
+  <!-- CENTER: GRAPH -->
+  <main class="panel center">
+    <div class="graph-search">
+      <input type="text" v-model="searchQuery" @keyup.enter="searchNode" placeholder="搜索知识点...">
+    </div>
+    <div class="graph-toolbar">
+      <span v-if="totalNodes" style="font-size:10px;color:var(--ink-muted);margin-right:8px;">展示 {{ shownNodes }} / {{ totalNodes }} 节点</span>
+      <button @click="graphLayout='force'" :class="{on:graphLayout==='force'}">力导向</button>
+      <button @click="graphLayout='circular'" :class="{on:graphLayout==='circular'}">环形</button>
+      <button v-if="selectedBook" @click="loadGraphMerged" :class="{on:graphMode==='merged'}">合并图</button>
+      <button v-if="selectedBook" @click="loadGraphCompact" :class="{on:graphMode==='compact'}">精华图</button>
+      <button @click="resetGraph">⟳</button>
+    </div>
+    <div id="kg-chart" ref="kgChart"></div>
+    <div class="node-tooltip" v-if="tooltipNode" :style="tooltipStyle">
+      <div class="tt-name">{{ tooltipNode.name }}</div>
+      <div class="tt-def">{{ tooltipNode.definition || '暂无定义' }}</div>
+      <div class="tt-meta">
+        <span v-if="tooltipNode.category">📌 {{ tooltipNode.category }}</span>
+        <span v-if="tooltipNode.chapter">📖 {{ tooltipNode.chapter }}</span>
+        <span v-if="tooltipNode.n_mentions">🔁 {{ tooltipNode.n_mentions }} 次提及</span>
+        <span v-if="tooltipNode.book_ids">📘 {{ tooltipNode.book_ids.length }} 本教材</span>
+      </div>
+    </div>
+  </main>
+
+  <!-- RIGHT: TABS -->
+  <aside class="panel right">
+    <div class="tab-bar">
+      <button v-for="t in tabs" :key="t.id" :class="['tab-btn', activeTab===t.id ? 'active' : '']" @click="activeTab=t.id">{{ t.label }}</button>
+    </div>
+    <div class="panel-body" style="display:flex;flex-direction:column;">
+
+      <!-- MERGE TAB -->
+      <template v-if="activeTab==='merge'">
+        <div style="margin-bottom:12px;">
+          <div style="font-size:11px;color:var(--ink-muted);margin-bottom:8px;">跨教材知识图谱对齐与压缩</div>
+          <button class="btn pri" @click="runMerge" :disabled="merging" style="width:100%;margin-bottom:6px;">
+            <span v-if="merging" class="spin" style="margin-right:6px;"></span>
+            {{ merging ? '对齐中...' : '执行跨教材实体对齐' }}
+          </button>
+          <button class="btn amb" @click="runCompress" :disabled="compressing" style="width:100%;">
+            <span v-if="compressing" class="spin" style="margin-right:6px;"></span>
+            {{ compressing ? '压缩中...' : '压缩到 ≤30% 字符数' }}
+          </button>
+        </div>
+        <div style="font-size:10px;color:var(--ink-muted);margin-bottom:10px;" v-if="mergeStats">
+          合并 {{ mergeStats.merged_nodes }} 节点 · {{ mergeStats.merged_edges }} 边 · {{ mergeStats.decisions }} 项决策
+        </div>
+        <div style="flex:1;overflow-y:auto;">
+          <div v-for="d in decisions" :key="d.decision_id" class="decision-card">
+            <div class="dc-header">
+              <span :class="['dc-action', d.action]">{{ d.action }}</span>
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span class="dc-confidence">{{ (d.confidence*100).toFixed(0) }}%</span>
+                <button class="dc-undo" @click="undoDecision(d.decision_id)">↩ 撤销</button>
+              </div>
+            </div>
+            <div class="dc-reason">{{ d.reason }}</div>
+          </div>
+          <div v-if="!decisions.length" class="empty">
+            <div class="icon">🔗</div><p>执行对齐后，整合决策将在此展示</p>
+          </div>
+        </div>
+      </template>
+
+      <!-- RAG TAB -->
+      <template v-if="activeTab==='rag'">
+        <div class="rag-status">索引状态：{{ ragStatusText }}</div>
+        <div class="rag-input-row">
+          <select v-model="ragMode">
+            <option value="graph">GraphRAG</option>
+            <option value="vanilla">Vanilla RAG</option>
+          </select>
+          <input type="text" v-model="ragQuestion" @keyup.enter="askRag" placeholder="输入医学问题...">
+          <button class="btn sm" @click="askRag" style="flex-shrink:0;">提问</button>
+        </div>
+        <div v-if="ragAsking" style="text-align:center;padding:24px;"><span class="spin"></span></div>
+        <div v-if="ragAnswer" class="rag-answer" style="flex:1;overflow-y:auto;">
+          <div class="answer-text">{{ ragAnswer.answer }}</div>
+          <div v-if="ragAnswer.citations" style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px;">
+            <div style="font-size:10px;color:var(--ink-muted);margin-bottom:6px;">📎 引用来源</div>
+            <div v-for="(c,i) in ragAnswer.citations" :key="i" class="cite" @click="ragAnswer._expanded = ragAnswer._expanded===i ? -1 : i">
+              {{ c.textbook }} · {{ c.chapter }} · 第{{ c.page }}页 · 相关度 {{ (c.relevance_score*100).toFixed(0) }}%
+            </div>
+            <div v-if="ragAnswer._expanded>=0 && ragAnswer.source_chunks" class="chunk-expand">
+              {{ ragAnswer.source_chunks[ragAnswer._expanded] || '原文加载中...' }}
+            </div>
+          </div>
+          <div v-if="ragAnswer.graph_context" style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px;">
+            <div style="font-size:10px;color:var(--accent-teal);margin-bottom:4px;font-weight:500;">🧬 知识脉络 (GraphRAG)</div>
+            <div v-for="(gc,i) in ragAnswer.graph_context" :key="i" style="font-size:10px;color:var(--ink-muted);margin:2px 0;font-family:var(--font-mono);">{{ gc }}</div>
+          </div>
+        </div>
+      </template>
+
+      <!-- CHAT TAB -->
+      <template v-if="activeTab==='chat'">
+        <div class="chat-msgs" ref="chatMsgs">
+          <div v-for="(m,i) in chatHistory" :key="i" :class="['chat-msg', m.role]">
+            <div class="role">{{ m.role==='user' ? '教师' : 'KnowledgeAgent' }}</div>
+            <div>{{ m.content || m.reply }}</div>
+            <div v-if="m.diff_cards" style="margin-top:8px;">
+              <div v-for="dc in m.diff_cards" :key="dc.edit_id" class="decision-card">
+                <div class="dc-header">
+                  <span :class="['dc-action', dc.edit?.op || 'merge']">{{ dc.edit?.op }}</span>
+                  <button class="dc-undo" @click="undoChatEdit(dc.edit?.edit_id)">↩ 撤销</button>
+                </div>
+                <div class="dc-reason" style="font-size:10px;">{{ dc.edit?.rationale }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="chat-input-row">
+          <input type="text" v-model="chatInput" @keyup.enter="sendChat" placeholder="如：为什么把炎症和炎症反应合并了？">
+          <button class="btn pri sm" @click="sendChat">发送</button>
+        </div>
+      </template>
+
+      <!-- REPORT TAB -->
+      <template v-if="activeTab==='report'">
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-val">{{ cs.original_chars ? (cs.original_chars/10000).toFixed(1)+'万' : '—' }}</div>
+            <div class="stat-label">原始总字数</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-val">{{ cs.compact_chars ? (cs.compact_chars/10000).toFixed(1)+'万' : '—' }}</div>
+            <div class="stat-label">整合后字数</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-val">{{ cs.ratio ? (cs.ratio*100).toFixed(1)+'%' : '—' }}</div>
+            <div class="stat-label">压缩比</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-val">{{ mergeStats ? mergeStats.decisions||0 : 0 }}</div>
+            <div class="stat-label">整合决策</div>
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--ink-muted);margin-bottom:4px;">压缩进度</div>
+        <div class="compress-bar">
+          <div class="fill" :style="{width: (cs.ratio||1)*100+'%'}"></div>
+        </div>
+        <div style="font-size:10px;color:var(--ink-muted);margin-top:6px;">
+          目标 ≤30% · {{ cs.ratio ? (cs.ratio*100).toFixed(1)+'%' : '未压缩' }}
+        </div>
+        <div v-if="cs.integrity" style="margin-top:14px;font-size:10px;color:var(--ink-muted);line-height:1.8;">
+          <div>🔗 前置依赖断链：{{ cs.integrity.broken_prereqs?.length || 0 }}</div>
+          <div>✅ 自动救援恢复：{{ cs.integrity.auto_recovered?.length || 0 }}</div>
+        </div>
+      </template>
+
+    </div>
+  </aside>
+
+</div>
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } = Vue;
+createApp({
+  setup() {
+    const backendOnline = ref(false);
+    const books = ref([]);
+    const selectedBook = ref(null);
+    const dragOver = ref(false);
+    const searchQuery = ref('');
+    const activeTab = ref('merge');
+    const tabs = [
+      { id:'merge', label:'整合操作' },
+      { id:'rag', label:'RAG 问答' },
+      { id:'chat', label:'多轮对话' },
+      { id:'report', label:'整合报告' },
+    ];
+    const graphLayout = ref('force');
+    const graphMode = ref('single');
+    const kgChart = ref(null);
+    let chart = null;
+    const tooltipNode = ref(null);
+    const tooltipStyle = ref({});
+    const merging = ref(false);
+    const compressing = ref(false);
+    const decisions = ref([]);
+    const mergeStats = ref(null);
+    const ragAsking = ref(false);
+    const ragQuestion = ref('');
+    const ragMode = ref('graph');
+    const ragAnswer = ref(null);
+    const ragStatusText = ref('未索引');
+    const chatInput = ref('');
+    const chatHistory = ref([]);
+    const chatMsgs = ref(null);
+    const sid = ref('sess_' + Date.now());
+    const cs = ref({});
+    const reportText = ref('');
+    const totalNodes = ref(0);
+    const shownNodes = ref(0);
+
+    const COLORS = ['#0d9488','#d97706','#4338ca','#be123c','#0891b2','#a21caf','#65a30d'];
+    const CATC = { '核心概念':'#d97706','现象':'#0891b2','过程':'#0d9488','结构':'#4338ca','物质':'#be123c','疾病':'#e11d48','方法':'#78716c' };
+
+    async function api(path, opts={}) {
+      try {
+        const r = await fetch(path, { headers:{'Content-Type':'application/json',...opts.headers}, ...opts });
+        if (!r.ok) throw new Error(r.status);
+        return await r.json();
+      } catch(e) { console.warn('API:', path, e.message); return null; }
+    }
+
+    async function checkHealth() {
+      const r = await api('/healthz');
+      backendOnline.value = !!r?.ok;
+    }
+
+    async function loadBooks() {
+      const r = await api('/api/books');
+      if (r?.books) books.value = r.books;
+      const s = await api('/api/rag/status');
+      if (s?.ready) ragStatusText.value = `已索引 ${s.n_books||0} 本 · ${s.n_chunks||0} 块`;
+      const c = await api('/api/compress/stats');
+      if (c) cs.value = c;
+    }
+
+    async function uploadFiles(files) {
+      for (const f of files) {
+        const fd = new FormData(); fd.append('file', f);
+        const r = await fetch('/api/upload', { method:'POST', body:fd });
+        const j = await r.json();
+        if (j.book_id) {
+          books.value.push({ book_id:j.book_id, title:j.filename, total_chars:j.size, stage:'uploaded' });
+          await api('/api/parse', { method:'POST', body:JSON.stringify({book_id:j.book_id}) });
+          pollStatus(j.book_id);
+        }
+      }
+    }
+    function handleFiles(e) { uploadFiles(e.target.files); }
+    function handleDrop(e) { dragOver.value=false; uploadFiles(e.dataTransfer.files); }
+
+    async function pollStatus(bid) {
+      const fn = async () => {
+        const r = await api('/api/parse/status/'+bid);
+        if (r) {
+          const ix = books.value.findIndex(b=>b.book_id===bid);
+          if (ix>=0) books.value[ix].stage = r.stage;
+          if (r.stage==='parsed'||r.stage==='failed') { await loadBooks(); return; }
+        }
+        setTimeout(fn, 2000);
+      };
+      fn();
+    }
+
+    function selectBook(bid) {
+      selectedBook.value = bid; graphMode.value = 'single';
+      loadGraph(bid);
+    }
+
+    async function loadGraph(bid) {
+      if (!bid) return;
+      const data = await api('/api/graph/'+bid);
+      if (data?.nodes) { renderGraph(data.nodes, data.edges||[]); return; }
+      renderMock();
+    }
+    async function loadGraphMerged() {
+      const data = await api('/api/graph/merged');
+      if (data?.nodes) { graphMode.value='merged'; renderGraph(data.nodes, data.edges||[]); }
+    }
+    async function loadGraphCompact() {
+      const data = await api('/api/graph/compact');
+      if (data?.nodes) { graphMode.value='compact'; renderGraph(data.nodes, data.edges||[]); }
+    }
+
+    function renderGraph(nodes, edges) {
+      if (!chart) {
+        chart = echarts.init(kgChart.value, null, { renderer:'canvas' });
+        chart.on('click', (p) => {
+          if (p.dataType==='node' && p.data) {
+            tooltipNode.value = p.data;
+            const r = kgChart.value.getBoundingClientRect();
+            tooltipStyle.value = { left:(p.event.offsetX+20)+'px', top:(p.event.offsetY-20)+'px' };
+          } else tooltipNode.value = null;
+        });
+      }
+      // Limit to top nodes by importance for readability
+      const MAX = 80;
+      const sorted = [...nodes].sort((a,b) => (b.n_mentions||0) - (a.n_mentions||0));
+      const topIds = new Set(sorted.slice(0, MAX).map(n => n.id||n.name));
+      const filtered = nodes.filter(n => topIds.has(n.id||n.name));
+      const filteredEdges = edges.filter(e => topIds.has(e.source) && topIds.has(e.target));
+      const maxM = Math.max(1, ...filtered.map(n => n.n_mentions||1));
+      const data = filtered.map(n => ({
+        id: n.id||n.name, name:n.name,
+        symbolSize: 12 + ((n.n_mentions||1)/maxM)*36,
+        category: n.category||0,
+        label: { show: (n.n_mentions||0) >= maxM*0.3, fontSize:10, color:'#4a4a4a' },
+        itemStyle: { color: CATC[n.category]||COLORS[(n.book_ids||[''])[0]?.charCodeAt?.(0)%7||0]||COLORS[0], borderColor:'#fff', borderWidth:1.5 },
+        ...n,
+      }));
+      const linkSet = new Set();
+      const links = filteredEdges.filter(e => {
+        const k = [e.source,e.target].sort().join('||')+e.relation_type;
+        if (linkSet.has(k)) return false;
+        linkSet.add(k); return true;
+      }).map(e => ({
+        source: e.source, target: e.target,
+        lineStyle: { color:'#d4cfc6', width:0.8, curveness:0.1, opacity:0.5 },
+        ...e,
+      }));
+      chart.setOption({
+        backgroundColor:'transparent',
+        series:[{ type:'graph', layout:graphLayout.value, roam:true, draggable:true, data, links,
+          force:{ repulsion: nodes.length>30 ? 600 : 400, edgeLength:[120,280], gravity:0.06, friction:0.5 },
+          emphasis:{ focus:'adjacency', lineStyle:{width:2,opacity:1,color:'#0d9488'}, itemStyle:{shadowBlur:20,shadowColor:'rgba(13,148,136,0.3)'} },
+          scaleLimit:{min:0.3,max:4},
+        }],
+      }, true);
+      // Show count badge
+      const total = nodes.length;
+      totalNodes.value = total;
+      shownNodes.value = filtered.length;
+    }
+
+    function renderMock() {
+      const ns = [
+        { id:'n1',name:'动作电位',category:'核心概念',definition:'细胞受到刺激后膜电位发生的一次快速而可逆的倒转',chapter:'第二章',n_mentions:5,book_ids:['03_生理学']},
+        { id:'n2',name:'静息电位',category:'核心概念',definition:'细胞在安静状态下存在于细胞膜两侧的电位差',chapter:'第二章',n_mentions:3,book_ids:['03_生理学']},
+        { id:'n3',name:'钠钾泵',category:'结构',definition:'细胞膜上主动转运Na⁺和K⁺的蛋白质',chapter:'第二章',n_mentions:4,book_ids:['03_生理学']},
+        { id:'n4',name:'炎症',category:'现象',definition:'具有血管系统的活体组织对损伤因子的防御反应',chapter:'第四章',n_mentions:6,book_ids:['05_病理学','07_病理生理学']},
+        { id:'n5',name:'免疫应答',category:'过程',definition:'机体识别和清除抗原的过程',chapter:'第九章',n_mentions:4,book_ids:['03_生理学','05_病理学']},
+        { id:'n6',name:'T细胞',category:'结构',definition:'在胸腺中成熟的淋巴细胞，参与细胞免疫',chapter:'第九章',n_mentions:3,book_ids:['03_生理学']},
+        { id:'n7',name:'心肌细胞',category:'结构',definition:'构成心肌的基本单位，具有自律性',chapter:'第四章',n_mentions:4,book_ids:['03_生理学']},
+        { id:'n8',name:'自律性',category:'现象',definition:'心肌细胞在没有外来刺激的情况下自动发生节律性兴奋的特性',chapter:'第四章',n_mentions:2,book_ids:['03_生理学']},
+        { id:'n9',name:'休克',category:'疾病',definition:'各种强烈致病因素作用于机体引起的急性循环障碍',chapter:'第十三章',n_mentions:5,book_ids:['07_病理生理学']},
+        { id:'n10',name:'发热',category:'现象',definition:'体温调定点上移引起的体温升高',chapter:'第八章',n_mentions:3,book_ids:['07_病理生理学']},
+      ];
+      const es = [
+        { source:'n1',target:'n2',relation_type:'prerequisite' },
+        { source:'n1',target:'n3',relation_type:'prerequisite' },
+        { source:'n5',target:'n6',relation_type:'contains' },
+        { source:'n7',target:'n8',relation_type:'contains' },
+        { source:'n4',target:'n5',relation_type:'applies_to' },
+        { source:'n8',target:'n4',relation_type:'parallel' },
+        { source:'n10',target:'n4',relation_type:'parallel' },
+        { source:'n9',target:'n7',relation_type:'applies_to' },
+      ];
+      renderGraph(ns, es);
+    }
+
+    function searchNode() {
+      if (!chart||!searchQuery.value) return;
+      const q = searchQuery.value.toLowerCase();
+      const opt = chart.getOption();
+      opt.series[0].data.forEach(n => {
+        n.itemStyle = n.itemStyle||{};
+        if (n.name.toLowerCase().includes(q)) {
+          n.itemStyle.shadowBlur=28; n.itemStyle.shadowColor='rgba(13,148,136,0.6)';
+          n.itemStyle.borderColor='#0d9488'; n.itemStyle.borderWidth=2;
+        } else { n.itemStyle.shadowBlur=0; n.itemStyle.borderWidth=0; n.itemStyle.opacity=0.2; }
+      });
+      chart.setOption({ series:[{ data:opt.series[0].data }] });
+    }
+    function resetGraph() {
+      searchQuery.value='';
+      if (selectedBook.value) loadGraph(selectedBook.value); else renderMock();
+    }
+
+    async function runMerge() {
+      merging.value=true;
+      const r = await api('/api/merge/run', { method:'POST', body:JSON.stringify({use_embedding:true}) });
+      if (r) { mergeStats.value=r; const ds=await api('/api/decisions'); if(ds)decisions.value=Array.isArray(ds)?ds:[]; loadGraphMerged(); }
+      merging.value=false;
+    }
+    async function runCompress() {
+      compressing.value=true;
+      const r = await api('/api/compress/run', { method:'POST', body:JSON.stringify({target_ratio:0.30}) });
+      if (r) cs.value=r;
+      compressing.value=false;
+    }
+    async function undoDecision(did) {
+      await api('/api/chat/undo', { method:'POST', body:JSON.stringify({session_id:sid.value, edit_id:did}) });
+      const ds=await api('/api/decisions'); if(ds)decisions.value=Array.isArray(ds)?ds:[];
+      loadGraphMerged();
+    }
+
+    async function askRag() {
+      if (!ragQuestion.value.trim()) return;
+      ragAsking.value=true; ragAnswer.value=null;
+      const r = await api('/api/rag/query', { method:'POST', body:JSON.stringify({question:ragQuestion.value, k:5, mode:ragMode.value}) });
+      if (r) ragAnswer.value=r;
+      ragAsking.value=false;
+    }
+
+    async function sendChat() {
+      if (!chatInput.value.trim()) return;
+      chatHistory.value.push({ role:'user', content:chatInput.value });
+      const msg = chatInput.value; chatInput.value='';
+      const r = await api('/api/chat', { method:'POST', body:JSON.stringify({session_id:sid.value, message:msg}) });
+      if (r) chatHistory.value.push({ role:'agent',...r });
+      nextTick(() => { if(chatMsgs.value) chatMsgs.value.scrollTop=chatMsgs.value.scrollHeight; });
+    }
+    async function undoChatEdit(eid) {
+      await api('/api/chat/undo', { method:'POST', body:JSON.stringify({session_id:sid.value, edit_id:eid}) });
+      loadGraphMerged();
+    }
+
+    function fmtSize(n) { return n>10000?(n/10000).toFixed(1)+'万':n.toLocaleString(); }
+
+    onMounted(async () => {
+      await checkHealth();
+      if (backendOnline.value) await loadBooks();
+      renderMock();
+      setInterval(async () => { if(backendOnline.value) await loadBooks(); }, 30000);
+      window.addEventListener('resize', () => chart?.resize());
+    });
+    onBeforeUnmount(() => chart?.dispose());
+    watch(graphLayout, () => { if(selectedBook.value) loadGraph(selectedBook.value); else renderMock(); });
+
+    return {
+      backendOnline, books, selectedBook, dragOver, searchQuery,
+      activeTab, tabs, graphLayout, graphMode, kgChart,
+      tooltipNode, tooltipStyle,
+      merging, compressing, decisions, mergeStats,
+      ragAsking, ragQuestion, ragMode, ragAnswer, ragStatusText,
+      chatInput, chatHistory, chatMsgs, sid,
+      cs, reportText,
+      handleFiles, handleDrop, selectBook, loadGraph, loadGraphMerged, loadGraphCompact,
+      searchNode, resetGraph, runMerge, runCompress, undoDecision,
+      askRag, sendChat, undoChatEdit, fmtSize,
+    };
+  },
+}).mount('#app');
+</script>
+</body>
+</html>

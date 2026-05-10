@@ -1,0 +1,174 @@
+"""T-06: Cross-textbook entity alignment.
+
+Strategy (cheap-first, no LLM unless needed):
+1. Normalize names (strip punctuation, fullwidth->halfwidth, lowercase ASCII).
+2. Group by (normalized_name, type) — exact match merges.
+3. Optional LLM pass for high-frequency unmatched candidates (deferred to P1.5).
+
+Inputs : list of single-book graph JSON files (output of build.save -> .json)
+Output : a merged graph JSON + an alias table.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import unicodedata
+from collections import defaultdict
+from pathlib import Path
+from typing import Any
+
+
+_PUNCT_RE = re.compile(r"[\s\u3000，,。.；;：:、\-_/\\\(\)\[\]【】《》\"'`]+")
+
+
+def normalize_name(name: str) -> str:
+    """Lossy normalization for alias matching."""
+    if not name:
+        return ""
+    # NFKC: fullwidth -> halfwidth, compatibility forms
+    s = unicodedata.normalize("NFKC", name)
+    s = s.strip().lower()
+    s = _PUNCT_RE.sub("", s)
+    return s
+
+
+def load_graph_json(path: Path) -> dict[str, Any]:
+    return json.loads(Path(path).read_text("utf-8"))
+
+
+def align_and_merge(graph_jsons: list[dict[str, Any]]) -> dict[str, Any]:
+    """Merge a list of single-book graph JSONs (build.to_json schema)."""
+    # canonical_id -> merged node
+    canon_nodes: dict[str, dict[str, Any]] = {}
+    # original (book_id, node_id) -> canonical_id
+    alias_map: dict[tuple[str, str], str] = {}
+    # alias table for report
+    alias_table: dict[str, list[dict[str, str]]] = defaultdict(list)
+
+    def _canonical_key(name: str, typ: str) -> str:
+        return f"{normalize_name(name)}|{typ}"
+
+    # 1. nodes
+    for gj in graph_jsons:
+        # infer book_id from any node's book_ids; fall back to 'unknown'
+        for n in gj.get("nodes", []):
+            name = n["name"]
+            typ = n.get("type", "Concept")
+            ck = _canonical_key(name, typ)
+            if ck not in canon_nodes:
+                canon_nodes[ck] = {
+                    "id": ck,
+                    "name": name,  # first-seen surface form as canonical label
+                    "type": typ,
+                    "book_ids": set(),
+                    "n_mentions": 0,
+                    "aliases": set(),
+                }
+            cn = canon_nodes[ck]
+            cn["book_ids"].update(n.get("book_ids", []))
+            cn["n_mentions"] += int(n.get("n_mentions", 1))
+            if name != cn["name"]:
+                cn["aliases"].add(name)
+            for b in n.get("book_ids", []):
+                alias_map[(b, name)] = ck
+                alias_table[ck].append({"book_id": b, "alias": name})
+
+    # 2. edges
+    edge_acc: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for gj in graph_jsons:
+        for e in gj.get("edges", []):
+            src_name = e["source"]
+            tgt_name = e["target"]
+            # find canonical via any book_id in this edge
+            src_ck = tgt_ck = None
+            for b in e.get("book_ids", []):
+                src_ck = src_ck or alias_map.get((b, src_name))
+                tgt_ck = tgt_ck or alias_map.get((b, tgt_name))
+            # fallback: try without book scoping
+            if src_ck is None:
+                # search any node with this surface name
+                for (b, name), ck in alias_map.items():
+                    if name == src_name:
+                        src_ck = ck
+                        break
+            if tgt_ck is None:
+                for (b, name), ck in alias_map.items():
+                    if name == tgt_name:
+                        tgt_ck = ck
+                        break
+            if not src_ck or not tgt_ck:
+                continue
+
+            rel = e["relation"]
+            key = (src_ck, rel, tgt_ck)
+            if key not in edge_acc:
+                edge_acc[key] = {
+                    "source": src_ck,
+                    "target": tgt_ck,
+                    "relation": rel,
+                    "book_ids": set(),
+                    "evidence_chunks": [],
+                    "weight": 0,
+                }
+            a = edge_acc[key]
+            a["weight"] += int(e.get("weight", 1))
+            a["book_ids"].update(e.get("book_ids", []))
+            for ev in e.get("evidence_chunks", []):
+                if ev not in a["evidence_chunks"]:
+                    a["evidence_chunks"].append(ev)
+
+    # serialize
+    nodes_out = []
+    for cn in canon_nodes.values():
+        nodes_out.append({
+            "id": cn["id"],
+            "name": cn["name"],
+            "type": cn["type"],
+            "book_ids": sorted(cn["book_ids"]),
+            "n_mentions": cn["n_mentions"],
+            "aliases": sorted(cn["aliases"]),
+            "n_books": len(cn["book_ids"]),
+        })
+    edges_out = []
+    for a in edge_acc.values():
+        edges_out.append({
+            "source": a["source"],
+            "target": a["target"],
+            "relation": a["relation"],
+            "book_ids": sorted(a["book_ids"]),
+            "evidence_chunks": a["evidence_chunks"],
+            "weight": a["weight"],
+            "n_books": len(a["book_ids"]),
+        })
+
+    return {
+        "nodes": nodes_out,
+        "edges": edges_out,
+        "alias_table": {ck: aliases for ck, aliases in alias_table.items() if len(aliases) > 1},
+    }
+
+
+def merge_files(book_graph_paths: list[Path], out_path: Path) -> dict[str, Any]:
+    graphs = [load_graph_json(p) for p in book_graph_paths]
+    merged = align_and_merge(graphs)
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # stats
+    n_total = sum(len(g.get("nodes", [])) for g in graphs)
+    e_total = sum(len(g.get("edges", [])) for g in graphs)
+    overlap_nodes = sum(1 for n in merged["nodes"] if n["n_books"] >= 2)
+    return {
+        "input_books": len(graphs),
+        "input_nodes_sum": n_total,
+        "input_edges_sum": e_total,
+        "merged_nodes": len(merged["nodes"]),
+        "merged_edges": len(merged["edges"]),
+        "overlap_nodes": overlap_nodes,
+        "alias_groups": len(merged["alias_table"]),
+    }
+
+
+__all__ = ["normalize_name", "align_and_merge", "merge_files"]
