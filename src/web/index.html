@@ -1155,7 +1155,7 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
             <div class="icon">🔬</div>
             <div class="t">向 7 本教材提问</div>
             <div class="h">已读完 7 本医学教材 · 共 4284 段原文 · 智能体会从教材里找答案，并标出处</div>
-            <div style="margin-top:14px;display:flex;flex-direction:column;gap:6px;">
+            <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:6px;justify-content:center;max-width:560px;">
               <button v-for="q in ragSamples" :key="q" class="btn sm" @click="ragQuestion=q;askRag()" style="font-size:10px;">{{ q }}</button>
             </div>
           </div>
@@ -1228,8 +1228,9 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
             <div class="icon">💬</div>
             <div class="t">跟知识库对话</div>
             <div class="h">直接告诉智能体哪里讲得不对，它会立刻调整图谱（合并 / 拆分 / 删节点），每条改动都可撤销。</div>
-            <div style="margin-top:14px;display:flex;flex-direction:column;gap:6px;">
+            <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:6px;justify-content:center;max-width:560px;">
               <button v-for="q in chatSamples" :key="q" class="btn sm" @click="chatInput=q;sendChat()" style="font-size:10px;">{{ q }}</button>
+            <!-- wrap container parent must support flex-wrap -->
             </div>
           </div>
           <div v-for="(m,i) in chatHistory" :key="i" :class="['msg', m.role]">
@@ -1516,8 +1517,15 @@ createApp({
     const ragStatusText = ref('未索引');
     const ragSamples = [
       '什么是动作电位？它和静息电位有何关联？',
-      '炎症与免疫应答有什么区别？',
-      '休克的发生机制是什么？',
+      '简述心肌细胞的兴奋-收缩偶联过程',
+      '比较一下急性炎症和慢性炎症的区别',
+      '休克的发生机制和分类是什么？',
+      '请讲一下肾小球滤过的影响因素',
+      '细菌内毒素和外毒素有什么不同？',
+      '组织学上小肠和大肠如何区分？',
+      '弥散性血管内凝血（DIC）的病理过程是怎样的？',
+      'HIV 感染人体后会经历哪几个阶段？',
+      '试述胚胎早期三胚层的形成与分化',
     ];
 
     const chatAsking = ref(false);
@@ -1529,6 +1537,11 @@ createApp({
       '为什么把炎症和炎症反应合并了？',
       '把上一次合并撤销',
       '将"细胞膜"和"质膜"合并为"细胞膜"',
+      '"心肌细胞"和"心肌纤维"是同一个概念吗？该不该合并？',
+      '从图谱里删掉"病例分析"这个节点，它不是真正的医学概念',
+      '把"高血压"拆成"原发性高血压"和"继发性高血压"两个节点',
+      '解剖学和组织学之间有哪些重叠？给出一些例子',
+      '生理学里"反馈调节"和病理学的"代偿"是同一回事吗？',
     ];
 
     const cs = ref({});
