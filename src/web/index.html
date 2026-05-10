@@ -1380,7 +1380,7 @@ createApp({
       return base;
     });
 
-    const layout = ref('force');
+    const layout = ref('tree');
     const graphMode = ref('single');
     const graphLoading = ref(false);
     const graphLoadingText = ref('加载中...');
@@ -1501,9 +1501,28 @@ createApp({
     }
 
     /* ============= API ============= */
+    // API base resolution:
+    //   1) URL ?api=https://...   (overrides + persists to localStorage)
+    //   2) localStorage 'apiBase'
+    //   3) <meta name="api-base"> tag
+    //   4) window.API_BASE
+    //   5) '' (same-origin, e.g. local dev)
+    const _qsApi = new URLSearchParams(location.search).get('api');
+    if (_qsApi !== null) localStorage.setItem('apiBase', _qsApi);
+    const _metaApi = document.querySelector('meta[name="api-base"]')?.content || '';
+    const API_BASE = (
+      localStorage.getItem('apiBase')
+      ?? _metaApi
+      ?? window.API_BASE
+      ?? ''
+    ).replace(/\/+$/, '');
+    function _u(path) {
+      if (/^https?:\/\//i.test(path)) return path;
+      return API_BASE + path;
+    }
     async function api(path, opts={}) {
       try {
-        const r = await fetch(path, { headers:{'Content-Type':'application/json',...opts.headers}, ...opts });
+        const r = await fetch(_u(path), { headers:{'Content-Type':'application/json',...opts.headers}, ...opts });
         if (!r.ok) {
           const txt = await r.text().catch(()=>'');
           throw new Error(`HTTP ${r.status} ${txt.slice(0,80)}`);
@@ -1535,7 +1554,7 @@ createApp({
     async function uploadFiles(files) {
       for (const f of files) {
         const fd = new FormData(); fd.append('file', f);
-        const r = await fetch('/api/upload', { method:'POST', body: fd });
+        const r = await fetch(_u('/api/upload'), { method:'POST', body: fd });
         const j = await r.json().catch(()=>null);
         if (j?.book_id) {
           books.value.push({ book_id: j.book_id, title: j.filename, total_chars: j.size, stage: 'uploaded' });
@@ -1987,13 +2006,13 @@ createApp({
     function openPdfPreview(book, page) {
       pdfPreview.book = book;
       pdfPreview.page = Math.max(1, Number(page) || 1);
-      pdfPreview.url = `/api/source/${encodeURIComponent(book)}/pdf#page=${pdfPreview.page}`;
+      pdfPreview.url = _u(`/api/source/${encodeURIComponent(book)}/pdf#page=${pdfPreview.page}`);
       pdfPreview.open = true;
       nextTick(() => _renderPdfPage());
     }
     function refreshPdf() {
       if (!pdfPreview.book) return;
-      pdfPreview.url = `/api/source/${encodeURIComponent(pdfPreview.book)}/pdf#page=${pdfPreview.page}`;
+      pdfPreview.url = _u(`/api/source/${encodeURIComponent(pdfPreview.book)}/pdf#page=${pdfPreview.page}`);
       _renderPdfPage();
     }
     async function _renderPdfPage() {
@@ -2002,7 +2021,7 @@ createApp({
       try {
         const book = pdfPreview.book;
         if (!_pdfDocCache.has(book)) {
-          const url = `/api/source/${encodeURIComponent(book)}/pdf`;
+          const url = _u(`/api/source/${encodeURIComponent(book)}/pdf`);
           const task = window.pdfjsLib.getDocument({ url, disableAutoFetch: true, disableStream: false });
           _pdfDocCache.set(book, task.promise);
         }
@@ -2052,7 +2071,7 @@ createApp({
       try {
         const meta = await api(`/api/jobs/${jobLog.jobId}`);
         if (meta?.status) jobLog.status = meta.status;
-        const r = await fetch(`/api/jobs/${jobLog.jobId}/log?since=${jobLog._since}`);
+        const r = await fetch(_u(`/api/jobs/${jobLog.jobId}/log?since=${jobLog._since}`));
         const text = await r.text();
         if (text) {
           jobLog.text += text;
