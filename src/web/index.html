@@ -1552,6 +1552,14 @@ createApp({
       isMobile.value = window.innerWidth < 768;
       if (isMobile.value) { leftCollapsed.value = true; rightCollapsed.value = true; }
     }
+    // 静态展示模式检测（必须在 isAdmin / API 定义之前，避免 TDZ 错误造成白屏）
+    const _staticIsLocal = /^(localhost|127\.0\.0\.1|0\.0\.0\.0)/.test(location.hostname);
+    const _staticQs = new URLSearchParams(location.search).get('static');
+    const _staticMetaApi = document.querySelector('meta[name="api-base"]')?.content || '';
+    const _staticLsApi = (() => { try { return localStorage.getItem('apiBase') || ''; } catch(_) { return ''; } })();
+    const STATIC_MODE = _staticQs === '1' || (!_staticLsApi && !_staticMetaApi && !_staticIsLocal);
+    if (STATIC_MODE) console.info('[KG] running in STATIC DEMO MODE (read-only, no backend)');
+
     const showHelp = ref(false);
     const backendOnline = ref(false);
     // 静态展示模式下强制禁用管理模式（即使 URL 携带 ?admin=1 也忽略）
@@ -1779,11 +1787,6 @@ createApp({
     // 当没有可用后端时（API_BASE 为空且非 localhost），切换到只读静态展示模式：
     //   - GET 类接口从 ./data/api/*.json + ./data/kg/*.json 读取
     //   - 写入/对话类接口弹出"克隆仓库本地部署"指引
-    const _isLocalHost = /^(localhost|127\.0\.0\.1|0\.0\.0\.0)/.test(location.hostname);
-    const _qsStatic = new URLSearchParams(location.search).get('static');
-    const STATIC_MODE = _qsStatic === '1' || (!API_BASE && !_isLocalHost);
-    if (STATIC_MODE) console.info('[KG] running in STATIC DEMO MODE (read-only, no backend)');
-
     // 只读端点 → 静态文件映射
     const STATIC_GET_MAP = {
       '/healthz': 'data/api/healthz.json',
@@ -2423,13 +2426,19 @@ createApp({
     function _doZoom(factor) {
       if (!chart) return;
       const dom = kgChart.value; if (!dom) return;
-      // 围绕画布中心缩放
+      // 围绕画布中心缩放（显式指定 seriesId，不然 ECharts 可能忽略）
       chart.dispatchAction({
         type: 'graphRoam',
+        seriesId: 'kg',
         zoom: factor,
         originX: dom.clientWidth / 2,
         originY: dom.clientHeight / 2,
       });
+      // dispatchAction 不会触发 graphroam 事件，手动同步百分比
+      _currentZoom *= factor;
+      if (_currentZoom < 0.05) _currentZoom = 0.05;
+      if (_currentZoom > 5) _currentZoom = 5;
+      zoomPct.value = Math.round(_currentZoom * 100);
     }
     function zoomIn() { _doZoom(1.2); }
     function zoomOut() { _doZoom(1/1.2); }
