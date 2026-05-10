@@ -1,47 +1,28 @@
-name: Deploy frontend to GitHub Pages
-
+name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
-    paths:
-      - 'src/web/**'
-      - '.github/workflows/pages.yml'
-  workflow_dispatch:
-
 permissions:
   contents: read
   pages: write
   id-token: write
-
 concurrency:
   group: pages
   cancel-in-progress: true
-
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Stage site
-        run: |
-          mkdir -p _site
-          cp -r src/web/* _site/
-          # Inject default API base from secret if present
-          if [ -n "${{ secrets.API_BASE }}" ]; then
-            sed -i 's#</head>#<meta name="api-base" content="${{ secrets.API_BASE }}"></head>#' _site/index.html
-          fi
-          # Disable Jekyll
-          touch _site/.nojekyll
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
-
   deploy:
-    needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - id: deployment
+      - uses: actions/checkout@v4
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: src/web
+      - name: Deploy
+        id: deployment
         uses: actions/deploy-pages@v4

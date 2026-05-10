@@ -211,6 +211,29 @@ def list_books():
     return {"books": list(_scan_books().values())}
 
 
+# --------------- PDF source serving (read-only, for citation jump) ---------------
+
+PDF_DIR = Path("textbooks")
+
+
+@app.get("/api/pdf/{book_id}")
+def serve_pdf(book_id: str):
+    # Prevent path traversal: only accept the bare stem matching a real file.
+    safe = book_id.replace("/", "").replace("\\", "").replace("..", "")
+    p = PDF_DIR / f"{safe}.pdf"
+    if not p.exists() or not p.is_file():
+        raise HTTPException(404, "pdf not found")
+    return FileResponse(
+        str(p),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{safe}.pdf"',
+            # Allow browser PDF viewer to honor #page= fragments
+            "Cache-Control": "public, max-age=3600",
+        },
+    )
+
+
 # --------------- Workspaces (book groupings) ---------------
 
 WORKSPACES_FILE = Path("data/workspaces.json")

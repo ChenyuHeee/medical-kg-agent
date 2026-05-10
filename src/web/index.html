@@ -586,6 +586,8 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
 }
 .cite-item:hover { border-color: var(--teal-bd); background: var(--surface-hover); }
 .cite-item .ci-meta { font-family: var(--font-mono); font-size: 10px; color: var(--ink-3); margin-top: 2px; }
+.cite-item .pdf-link { color: var(--teal); text-decoration: none; font-weight: 500; }
+.cite-item .pdf-link:hover { text-decoration: underline; }
 .cite-chunk {
   margin-top: 4px; padding: 10px 14px;
   background: var(--surface-2); border-left: 3px solid var(--teal);
@@ -1166,7 +1168,9 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
                 <div class="cite-head">📎 引用 {{ m.a.citations.length }} 条</div>
                 <template v-for="(c, ci) in m.a.citations" :key="ci">
                   <div class="cite-item" @click="m._exp = m._exp===ci ? -1 : ci">
-                    <div>{{ c.textbook || c.book_id }} · {{ c.chapter || '—' }}<span v-if="c.page"> · 第{{c.page}}页</span></div>
+                    <div>
+                      {{ c.textbook || c.book_id }} · {{ c.chapter || '—' }}<a v-if="c.page && c.page>0" class="pdf-link" :href="pdfHref(c.textbook||c.book_id, c.page)" target="_blank" rel="noopener" @click.stop="openPdf($event, c.textbook||c.book_id, c.page)"> · 第{{c.page}}页 ↗</a>
+                    </div>
                     <div class="ci-meta">相关度 {{ (c.relevance_score*100).toFixed(0) }}% {{ m._exp===ci ? '· 收起' : '· 展开原文' }}</div>
                   </div>
                   <div v-if="m._exp===ci && m.a.source_chunks && m.a.source_chunks[ci]" class="cite-chunk">{{ m.a.source_chunks[ci] }}</div>
@@ -2184,6 +2188,26 @@ createApp({
       navigator.clipboard.writeText(JSON.stringify(n, null, 2)).then(() => toast('已复制 JSON', 'ok'));
     }
     function copyText(t) { navigator.clipboard.writeText(t).then(() => toast('已复制', 'ok')); }
+    function pdfHref(book, page) {
+      if (!book || !page || page < 1) return '#';
+      return _u('/api/pdf/' + encodeURIComponent(book)) + '#page=' + page;
+    }
+    // Pre-warm localtunnel cookie so direct PDF opens skip the reminder.
+    let _ltWarmed = false;
+    async function openPdf(ev, book, page) {
+      if (!book || !page || page < 1) { ev.preventDefault(); return; }
+      const url = pdfHref(book, page);
+      if (_LT && !_ltWarmed) {
+        ev.preventDefault();
+        try {
+          // A HEAD with the bypass header sets the localtunnel cookie for this domain.
+          await fetch(_u('/healthz'), { method: 'GET', headers: _hdrs(), credentials: 'include' });
+          _ltWarmed = true;
+        } catch(e) {}
+        window.open(url, '_blank', 'noopener');
+      }
+      // else: let the default <a> click open it.
+    }
     function askAboutNode(n) {
       activeTab.value = 'rag';
       ragQuestion.value = `请详细解释"${n.name}"，并列出它在 7 本医学教材中的相关知识点关联。`;
@@ -2700,6 +2724,7 @@ createApp({
       onSearch, clearSearch, setLayout, rerender, toggleCat, toggleRel,
       resetFilters, resetView, exportPNG,
       openNode, focusNodeById, copyNodeJSON, copyText, askAboutNode,
+      pdfHref, openPdf,
       loadNodeSources, openPdfPreview, refreshPdf,
       startJob, openJobLog, cancelJob, retryJob,
       loadWorkspaces, setActiveWorkspace, openWsEditor, saveWorkspace, deleteWorkspace,
