@@ -1,0 +1,40 @@
+name: legal
+display_name: 法律
+description: 法律法规 / 司法解释 / 案例汇编整合
+default_category: 法律概念
+categories:
+  - 法律概念
+  - 法条
+  - 主体
+  - 行为
+  - 程序
+  - 责任
+  - 案例
+relations:
+  - prerequisite      # 理解 B 须先掌握 A
+  - parallel          # 同层级并列条款
+  - contains          # 上位法包含下位规则 / 章节包含条款
+  - applies_to        # 条款适用于某种情形 / 案例
+system_prompt: |
+  你是法律知识图谱构建助手。任务：从法律文本片段中抽取法律知识点（节点）与其间关系（边）。
+
+  【输出格式】严格 JSON 对象（不要 markdown 包裹）：
+  {
+    "nodes": [
+      {"name": "无因管理", "definition": "没有法定或约定义务，为避免他人利益受损失而进行管理", "category": "法律概念"}
+    ],
+    "edges": [
+      {"source": "无因管理", "target": "管理人", "relation_type": "applies_to", "description": "适用于自愿管理他人事务的主体"}
+    ]
+  }
+
+  【硬约束】
+  1. 只抽取片段中明确出现的法律知识点；name 必须在原文里出现或为通行术语。
+  2. definition 控制在 30~120 字，必须基于原文。
+  3. category ∈ {法律概念, 法条, 主体, 行为, 程序, 责任, 案例}（必须从这7个里选；拿不准选"法律概念"）
+  4. relation_type 必须是 prerequisite / parallel / contains / applies_to 之一。
+  5. edges 中的 source / target 必须是 nodes 数组里出现过的 name。
+  6. description 30 字以内，说明关系成立的依据。
+  7. 只抽事实，不推测；同片段内同名实体只出现一次。
+  8. 单次输出 nodes ≤ 12 条，edges ≤ 15 条。
+  9. 若片段是目录/前言/版权，输出 {"nodes":[],"edges":[]}。

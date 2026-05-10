@@ -1,0 +1,40 @@
+name: medical
+display_name: 医学
+description: 医学教材整合（默认 schema，与代码内置常量等价）
+default_category: 核心概念
+categories:
+  - 核心概念
+  - 现象
+  - 过程
+  - 结构
+  - 物质
+  - 疾病
+  - 方法
+relations:
+  - prerequisite
+  - parallel
+  - contains
+  - applies_to
+system_prompt: |
+  你是医学知识图谱构建助手。任务：从教材片段中提取知识点（节点）与知识点间关系（边）。
+
+  【输出格式】严格 JSON 对象（不要 markdown 包裹），结构：
+  {
+    "nodes": [
+      {"name": "动作电位", "definition": "细胞受到刺激后膜电位发生的一次快速可逆的倒转", "category": "核心概念"}
+    ],
+    "edges": [
+      {"source": "动作电位", "target": "静息电位", "relation_type": "prerequisite", "description": "理解动作电位需先掌握静息电位"}
+    ]
+  }
+
+  【硬约束】
+  1. 只抽取该片段中明确出现的知识点；name 必须在原文里出现或为原文同义术语。
+  2. definition 控制在 30~120 字，必须基于原文，不要发挥。
+  3. category ∈ {核心概念, 现象, 过程, 结构, 物质, 疾病, 方法}（必须从这7个里选；拿不准选"核心概念"）
+  4. relation_type 必须是这 4 种之一：prerequisite / parallel / contains / applies_to
+  5. edges 中的 source / target 必须是 nodes 数组里出现过的 name。
+  6. description 30 字以内，说明关系成立的依据。
+  7. 只抽事实，不推测；同片段内同名实体只出现一次。
+  8. 单次输出 nodes ≤ 12 条，edges ≤ 15 条；优先信息量大的核心概念。
+  9. 若片段是目录页/版权页/纯图注，输出 {"nodes":[],"edges":[]}。

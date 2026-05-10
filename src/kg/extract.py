@@ -23,13 +23,19 @@ from pathlib import Path
 from typing import Any
 
 from ..llm import LLMClient, LLMJSONParseError, build_messages, get_default_client
+from ..config.domain import get_domain
 
 log = logging.getLogger(__name__)
 
-ALLOWED_RELATIONS = {"prerequisite", "parallel", "contains", "applies_to"}
-DEFAULT_CATEGORY = "概念"
+# Domain schema (defaults to medical when $DOMAIN is unset; legacy behaviour preserved).
+_DOMAIN = get_domain()
+ALLOWED_RELATIONS = set(_DOMAIN.relations)
+ALLOWED_CATEGORIES = set(_DOMAIN.categories)
+DEFAULT_CATEGORY = _DOMAIN.default_category
+SYSTEM_PROMPT = _DOMAIN.system_prompt
 
-SYSTEM_PROMPT = """你是医学知识图谱构建助手。任务：从教材片段中提取知识点（节点）与知识点间关系（边）。
+# --- legacy literal kept for reference / diff readability (unused) -----------
+_LEGACY_MEDICAL_PROMPT = """你是医学知识图谱构建助手。任务：从教材片段中提取知识点（节点）与知识点间关系（边）。
 
 【输出格式】严格 JSON 对象（不要 markdown 包裹），结构：
 {
@@ -64,7 +70,7 @@ USER_TEMPLATE = """【教材】{book_id}
 
 请输出符合格式的 JSON 对象。"""
 
-ALLOWED_CATEGORIES = {"核心概念", "现象", "过程", "结构", "物质", "疾病", "方法"}
+# (ALLOWED_CATEGORIES is set at module top from the active Domain.)
 
 
 def _node_id(book_id: str, chunk_id: str, name: str, idx: int) -> str:

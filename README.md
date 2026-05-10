@@ -87,6 +87,18 @@ curl -X POST http://localhost:8000/api/rag/query \
 2. **教学完整性自检**：压缩后 fixpoint loop 检查 `prerequisite` 链不断裂，自动 rescue。
 3. **diff_card UI 协议**：Agent 每次写图都返回 before/after 子图，前端可逐步审计。
 4. **可撤销**：`diff_log.jsonl` + `/api/chat/undo` 反向重放。
+5. **领域可插拔**：通过 `domains/<name>.yaml` 切换 schema（节点类别 / 关系类型 / 抽取 prompt），同一套整合 + GraphRAG 流水线可用于法律、CS、K12 等任意"多教材/多文档整合"场景，本仓库内置 medical（默认）/ legal / cs 三个示例。
+
+### 5.1 切换领域
+
+```bash
+# 默认 medical：完全等价于赛题硬约束的 7 类节点 + 4 关系
+# 切到法律：
+DOMAIN=legal python -m src.kg.extract data/chunks/民法典.json
+# 切到 CS：
+DOMAIN=cs python -m src.kg.extract data/chunks/SICP.json
+# 自定义：复制 domains/medical.yaml → domains/<your>.yaml 改类别 / 关系 / prompt 即可
+```
 
 ## 6. 项目结构
 
