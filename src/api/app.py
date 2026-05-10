@@ -45,8 +45,10 @@ from starlette.requests import Request as _Req
 from starlette.responses import Response as _Resp, JSONResponse as _JR
 
 _WRITE_TOKEN = _os.environ.get("DEMO_WRITE_TOKEN", "").strip()
-# POSTs that visitors may call without a token (read-like)
+# Endpoints that public visitors can call without a token (rate-limited only).
 _OPEN_POSTS = {"/api/chat", "/api/chat/undo", "/api/rag/query"}
+# Path prefixes that are open for ALL methods (low-risk demo features, e.g. workspaces).
+_OPEN_PREFIXES = ("/api/workspaces",)
 # Per-IP rate limit: max N requests per WINDOW seconds for open POSTs
 _RL_MAX = int(_os.environ.get("DEMO_RL_MAX", "30"))
 _RL_WINDOW = int(_os.environ.get("DEMO_RL_WINDOW", "60"))
@@ -83,8 +85,9 @@ class GuardMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         ip = _client_ip(request)
         is_local = ip in ("127.0.0.1", "::1", "localhost")
-        # Open POSTs: rate-limit only
-        if path in _OPEN_POSTS and not is_local:
+        # Open POSTs / open path prefixes: rate-limit only
+        is_open = (path in _OPEN_POSTS) or any(path.startswith(p) for p in _OPEN_PREFIXES)
+        if is_open and not is_local:
             if not _rate_check(ip):
                 return _JR({"error": "rate_limited", "retry_after": _RL_WINDOW}, status_code=429)
         else:
