@@ -19,7 +19,7 @@ from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -375,6 +375,239 @@ def chat_undo(req: UndoReq):
 def chat_history(session_id: str):
     from ..chat.agent import get_history
     return {"history": get_history(session_id)}
+
+
+# --------------- Source / PDF preview & node citations ---------------
+
+TEXTBOOK_DIR = Path("textbooks")
+
+
+def _find_book_pdf(book_id: str) -> Path | None:
+    """Try textbooks/ first, then data/uploads/. Returns first matching PDF."""
+    for d in (TEXTBOOK_DIR, UPLOAD_DIR):
+        p = d / f"{book_id}.pdf"
+        if p.exists():
+            return p
+        # Allow stem prefix match (e.g. user-uploaded files with same stem)
+        for cand in d.glob(f"{book_id}*.pdf"):
+            return cand
+    return None
+
+
+@app.get("/api/source/{book_id}/pdf")
+def get_book_pdf(book_id: str):
+    """Stream the raw PDF — browsers can render with #page=N."""
+    p = _find_book_pdf(book_id)
+    if not p:
+        raise HTTPException(404, f"no pdf for book_id={book_id}")
+    return FileResponse(str(p), media_type="application/pdf")
+
+
+@app.get("/api/source/{book_id}/chunks")
+def get_book_chunks(book_id: str, q: str = "", limit: int = 5):
+    """Return chunks of a book containing query string `q` (node name).
+
+    Returns top-N by occurrence count, each with page, chunk_id, snippet (200 chars).
+    If `q` is empty, returns first `limit` chunks.
+    """
+    p = CHUNKS_DIR / f"{book_id}.json"
+    if not p.exists():
+        raise HTTPException(404, f"no chunks for book_id={book_id}")
+    chunks = json.loads(p.read_text(encoding="utf-8"))
+    q = (q or "").strip()
+    hits = []
+    for c in chunks:
+        text = c.get("text", "") or ""
+        cnt = text.count(q) if q else 0
+        if q and cnt == 0:
+            continue
+        # Build snippet centered on first match
+        if q:
+            i = text.find(q)
+            start = max(0, i - 80)
+            end = min(len(text), i + len(q) + 120)
+            snippet = ("..." if start > 0 else "") + text[start:end] + ("..." if end < len(text) else "")
+        else:
+            snippet = text[:200] + ("..." if len(text) > 200 else "")
+        hits.append({
+            "chunk_id": c.get("chunk_id"),
+            "book_id": c.get("book_id", book_id),
+            "chapter": c.get("chapter") or c.get("chapter_id") or "",
+            "page": c.get("page", 1),
+            "n_hits": cnt,
+            "snippet": snippet,
+        })
+    if q:
+        hits.sort(key=lambda x: -x["n_hits"])
+    return {"book_id": book_id, "query": q, "total": len(hits), "hits": hits[:limit]}
+
+
+@app.get("/api/source/node/{node_id}")
+def get_node_sources(node_id: str, limit: int = 5):
+    """For a merged-graph node, find chunks across its source books containing its name.
+
+    Reads merged.json to get node name + book_ids, then searches each book's chunks.
+    """
+    mp = KG_DIR / "merged.json"
+    src_doc = json.loads(mp.read_text(encoding="utf-8")) if mp.exists() else None
+    node = None
+    if src_doc:
+        for n in src_doc["nodes"]:
+            if n["id"] == node_id:
+                node = n; break
+    if not node:
+        # Try per-book graphs
+        for kp in KG_DIR.glob("*.json"):
+            if kp.stem in ("merged", "compact"):
+                continue
+            try:
+                d = json.loads(kp.read_text(encoding="utf-8"))
+                for n in d["nodes"]:
+                    if n["id"] == node_id:
+                        node = {**n, "book_ids": [kp.stem]}; break
+                if node:
+                    break
+            except Exception:
+                continue
+    if not node:
+        raise HTTPException(404, f"node not found: {node_id}")
+    name = node.get("canonical_name") or node.get("name") or node.get("id")
+    book_ids = node.get("book_ids") or []
+    if not book_ids:
+        # Fallback: scan all books
+        book_ids = [p.stem for p in CHUNKS_DIR.glob("*.json")]
+    all_hits = []
+    per_book = max(2, limit // max(1, len(book_ids)) + 1)
+    for bid in book_ids:
+        try:
+            r = get_book_chunks(bid, q=name, limit=per_book)
+            for h in r.get("hits", []):
+                all_hits.append(h)
+        except HTTPException:
+            continue
+    all_hits.sort(key=lambda x: -x.get("n_hits", 0))
+    return {"node_id": node_id, "name": name, "book_ids": book_ids,
+            "total": len(all_hits), "hits": all_hits[:limit]}
+
+
+# --------------- Jobs: pipeline runner with live log tail ---------------
+
+import subprocess
+import signal as _signal
+
+LOGS_DIR = Path("data/logs/jobs"); LOGS_DIR.mkdir(parents=True, exist_ok=True)
+_JOBS: dict[str, dict[str, Any]] = {}  # job_id -> {pid, status, log_path, cmd, book_id, started_at}
+
+
+class JobReq(BaseModel):
+    book_id: str | None = None         # if given, runs for one book; else for all
+    stage: str = "all"                 # "all" | "extract" | "build" | "merge" | "compress"
+
+
+def _spawn_job(cmd: list[str], book_id: str | None, stage: str) -> str:
+    job_id = f"{stage}-{int(time.time()*1000)}-{uuid.uuid4().hex[:6]}"
+    log_path = LOGS_DIR / f"{job_id}.log"
+    f = log_path.open("ab", buffering=0)
+    f.write(f"$ {' '.join(cmd)}\n".encode())
+    proc = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(Path.cwd()))
+    _JOBS[job_id] = {
+        "job_id": job_id, "pid": proc.pid, "status": "running",
+        "log_path": str(log_path), "cmd": cmd,
+        "book_id": book_id, "stage": stage, "started_at": time.time(),
+    }
+
+    def _waiter():
+        rc = proc.wait()
+        _JOBS[job_id]["status"] = "done" if rc == 0 else (
+            "cancelled" if _JOBS[job_id].get("cancel_requested") else "failed"
+        )
+        _JOBS[job_id]["return_code"] = rc
+        _JOBS[job_id]["finished_at"] = time.time()
+        try: f.close()
+        except Exception: pass
+    threading.Thread(target=_waiter, daemon=True).start()
+    return job_id
+
+
+@app.post("/api/jobs/run")
+def jobs_run(req: JobReq):
+    """Start a pipeline job. Returns job_id immediately."""
+    py = "python"
+    bid = req.book_id
+    if req.stage == "extract":
+        if not bid:
+            raise HTTPException(400, "extract requires book_id")
+        cp = CHUNKS_DIR / f"{bid}.json"
+        if not cp.exists():
+            raise HTTPException(404, f"no chunks for {bid}; parse first")
+        cmd = [py, "-u", "-m", "src.kg.extract", str(cp), "--workers", "6"]
+    elif req.stage == "build":
+        if not bid:
+            raise HTTPException(400, "build requires book_id")
+        cmd = [py, "-u", "-m", "src.pipeline", "build", "--book", bid]
+    elif req.stage == "merge":
+        cmd = [py, "-u", "-m", "src.pipeline", "merge"]
+    elif req.stage == "compress":
+        cmd = [py, "-u", "-m", "src.pipeline", "compress"]
+    elif req.stage == "all":
+        # Full per-book pipeline: extract+build (merge/compress are global)
+        if not bid:
+            raise HTTPException(400, "all-stage requires book_id")
+        cmd = [py, "-u", "-m", "src.pipeline", "run", "--books", bid]
+    else:
+        raise HTTPException(400, f"unknown stage: {req.stage}")
+    job_id = _spawn_job(cmd, bid, req.stage)
+    return {"job_id": job_id, "status": "running", "log_url": f"/api/jobs/{job_id}/log"}
+
+
+@app.get("/api/jobs")
+def jobs_list():
+    return {"jobs": list(_JOBS.values())}
+
+
+@app.get("/api/jobs/{job_id}")
+def job_get(job_id: str):
+    j = _JOBS.get(job_id)
+    if not j: raise HTTPException(404, "no such job")
+    return j
+
+
+@app.get("/api/jobs/{job_id}/log", response_class=PlainTextResponse)
+def job_log(job_id: str, since: int = 0, tail: int = 0):
+    """Return log content (since=byte-offset for incremental polling, or tail=N lines)."""
+    j = _JOBS.get(job_id)
+    if not j: raise HTTPException(404, "no such job")
+    p = Path(j["log_path"])
+    if not p.exists():
+        return ""
+    if tail > 0:
+        try:
+            lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()
+            return "\n".join(lines[-tail:])
+        except Exception:
+            return ""
+    size = p.stat().st_size
+    if since >= size:
+        return ""
+    with p.open("rb") as f:
+        f.seek(since)
+        data = f.read()
+    return data.decode("utf-8", errors="ignore")
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def job_cancel(job_id: str):
+    j = _JOBS.get(job_id)
+    if not j: raise HTTPException(404, "no such job")
+    if j["status"] != "running":
+        return {"ok": False, "status": j["status"], "msg": "not running"}
+    j["cancel_requested"] = True
+    try:
+        import os as _os
+        _os.kill(j["pid"], _signal.SIGTERM)
+    except Exception as ex:
+        return {"ok": False, "msg": str(ex)}
+    return {"ok": True, "status": "cancelling"}
 
 
 # --------------- Static frontend ---------------

@@ -380,6 +380,30 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
 }
 .tab-intro b { color: var(--ink); }
 
+/* PDF / Job log drawer */
+.pdf-drawer {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 800;
+  display: flex; align-items: stretch; justify-content: flex-end;
+  animation: fade .15s;
+}
+.pdf-card {
+  width: min(72vw, 1100px); height: 100%; background: var(--surface);
+  display: flex; flex-direction: column; box-shadow: -8px 0 32px rgba(0,0,0,.2);
+  animation: slideR .2s ease;
+}
+@keyframes slideR { from { transform: translateX(40px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+.pdf-head {
+  padding: 14px 18px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: var(--bg-warm);
+}
+.pdf-iframe { flex: 1; width: 100%; border: 0; background: var(--bg); }
+.job-log-pre {
+  flex: 1; margin: 0; padding: 14px 18px; background: #0d1117; color: #c9d1d9;
+  font-family: var(--font-mono); font-size: 11px; line-height: 1.55;
+  overflow: auto; white-space: pre-wrap; word-break: break-all;
+}
+
 .skeleton-overlay {
   position: absolute; inset: 0; background: var(--bg); z-index: 5;
   display: flex; align-items: center; justify-content: center;
@@ -682,6 +706,12 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
           <span :class="['bbadge', b.stage||'unknown']">{{ stageText(b.stage) }}</span>
         </div>
         <div v-if="b.stage==='parsing'" class="progress"><div class="fill" :style="{width:(b.progress||30)+'%'}"></div></div>
+        <div style="display:flex;gap:4px;margin-top:6px;">
+          <button class="btn sm" style="flex:1;font-size:10px;padding:3px 6px;"
+                  @click.stop="startJob(b.book_id, 'all')" :title="'运行完整管线（解析→抽取→构建）'">▶ 运行管线</button>
+          <button class="btn sm" style="font-size:10px;padding:3px 6px;"
+                  @click.stop="startJob(b.book_id, 'extract')" title="只重新抽取实体关系">↻ 抽取</button>
+        </div>
       </div>
 
       <div v-if="!filteredBooks.length && books.length" class="empty">
@@ -844,7 +874,29 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
       <div class="nd-actions" style="margin-top:10px;">
         <button class="nd-action" @click="askAboutNode(selectedNode)">用 RAG 提问</button>
         <button class="nd-action" @click="copyNodeJSON(selectedNode)">复制 JSON</button>
+        <button class="nd-action" @click="loadNodeSources(selectedNode)">📄 原文出处</button>
       </div>
+
+      <!-- node sources -->
+      <div v-if="nodeSources.loading" style="margin-top:10px;font-size:10px;color:var(--ink-3);">
+        <span class="spin"></span> 正在检索原文片段...
+      </div>
+      <div v-if="nodeSources.hits && nodeSources.hits.length" style="margin-top:10px;">
+        <div class="nd-section">📄 原文出处（点击可在 PDF 中跳转）</div>
+        <div v-for="h in nodeSources.hits" :key="h.chunk_id"
+             style="margin-top:6px;padding:8px 10px;background:var(--surface-2);border-radius:var(--r-sm);cursor:pointer;border:1px solid transparent;"
+             @click="openPdfPreview(h.book_id, h.page)"
+             onmouseover="this.style.borderColor='var(--indigo-bd)'"
+             onmouseout="this.style.borderColor='transparent'">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:10px;">
+            <b style="color:var(--ink);">{{ shortBook(h.book_id) }}</b>
+            <span style="color:var(--ink-3);">p.{{ h.page }} · 命中 {{ h.n_hits }}</span>
+          </div>
+          <div style="font-size:10px;line-height:1.6;color:var(--ink-2);margin-top:4px;max-height:60px;overflow:hidden;">{{ h.snippet }}</div>
+        </div>
+      </div>
+      <div v-if="nodeSources.loaded && (!nodeSources.hits || !nodeSources.hits.length)"
+           style="margin-top:10px;font-size:10px;color:var(--ink-3);">未找到原文出处</div>
     </div>
   </main>
 
@@ -864,18 +916,29 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
       <!-- ============== MERGE TAB ============== -->
       <template v-if="activeTab==='merge'">
         <div class="tab-intro">
-          <b>整合工作流：</b>把 7 本教材里指向同一个概念的节点合并为一个，再把内容压缩到 ≤30%。每条决策都可撤销。
+          <b>整合工作流：</b>把 7 本教材里指向同一个概念的节点合并为一个，再按需要压缩。每条决策都可撤销。
         </div>
         <div style="margin-bottom:12px;">
           <div style="font-size:11px;color:var(--ink-3);margin-bottom:8px;">跨教材实体对齐 → 整合 → 压缩</div>
-          <button class="btn pri" @click="runMerge" :disabled="merging" style="width:100%;justify-content:center;margin-bottom:6px;">
+          <button class="btn pri" @click="runMerge" :disabled="merging" style="width:100%;justify-content:center;margin-bottom:8px;">
             <span v-if="merging" class="spin"></span>
             {{ merging ? '对齐进行中...' : '执行实体对齐' }}
           </button>
+          <div style="display:flex;gap:4px;margin-bottom:6px;font-size:10px;color:var(--ink-3);">
+            <span style="align-self:center;">压缩档位</span>
+            <button v-for="opt in compressPresets" :key="opt.v"
+              :class="['btn','sm', compressTarget===opt.v?'pri':'']"
+              style="flex:1;justify-content:center;padding:4px;font-size:10px;"
+              @click="compressTarget=opt.v" :title="opt.hint">{{ opt.label }}</button>
+          </div>
           <button class="btn amb" @click="runCompress" :disabled="compressing" style="width:100%;justify-content:center;">
             <span v-if="compressing" class="spin"></span>
-            {{ compressing ? '压缩中...' : '压缩到 ≤30% 字符数' }}
+            {{ compressing ? '压缩中...' : `压缩到 ≤${(compressTarget*100).toFixed(0)}% 字符数` }}
           </button>
+          <div style="margin-top:8px;padding:8px 10px;font-size:10px;line-height:1.55;color:var(--ink-3);background:var(--amber-bg);border:1px solid var(--amber-bd);border-radius:var(--r-sm);">
+            ⚠️ <b style="color:var(--amber)">使用边界</b>：压缩版本只保留概念定义+关系网络，<b>适合考前快速复习/查漏</b>，
+            不能替代教材精读（图谱里没有示意图、推导和病例）。如需溯源，请在节点详情查看 <b>📄 原文出处</b>。
+          </div>
         </div>
         <div v-if="mergeStats" style="font-size:10px;color:var(--ink-3);margin-bottom:10px;padding:8px 10px;background:var(--surface-2);border-radius:var(--r-sm);">
           ✓ 合并 <b style="color:var(--ink)">{{ mergeStats.merged_nodes||mergeStats.merged_node_count||0 }}</b> 节点 ·
@@ -1117,6 +1180,52 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
   <div v-for="t in toasts" :key="t.id" :class="['toast', t.kind]">{{ t.msg }}</div>
 </div>
 
+<!-- PDF PREVIEW DRAWER -->
+<div v-if="pdfPreview.open" class="pdf-drawer" @click.self="pdfPreview.open=false">
+  <div class="pdf-card">
+    <div class="pdf-head">
+      <div>
+        <div style="font-size:11px;color:var(--ink-3);font-family:var(--font-mono);">📄 原文预览</div>
+        <div style="font-size:14px;font-weight:600;color:var(--ink);margin-top:2px;">{{ shortBook(pdfPreview.book) }} · 第 {{ pdfPreview.page }} 页</div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <button class="btn sm" @click="pdfPreview.page=Math.max(1,pdfPreview.page-1);refreshPdf()">‹ 上页</button>
+        <input type="number" v-model.number="pdfPreview.page" min="1" @change="refreshPdf"
+               style="width:56px;padding:4px 6px;border:1px solid var(--line);border-radius:var(--r-sm);text-align:center;background:var(--surface);color:var(--ink);font-size:11px;">
+        <button class="btn sm" @click="pdfPreview.page+=1;refreshPdf()">下页 ›</button>
+        <a class="btn sm" :href="pdfPreview.url" target="_blank" rel="noopener">↗ 新窗口打开</a>
+        <button class="btn sm" @click="pdfPreview.open=false">✕ 关闭</button>
+      </div>
+    </div>
+    <iframe v-if="pdfPreview.url" :key="pdfPreview.url" :src="pdfPreview.url" class="pdf-iframe"></iframe>
+  </div>
+</div>
+
+<!-- JOB LOG DRAWER -->
+<div v-if="jobLog.open" class="pdf-drawer" @click.self="jobLog.open=false">
+  <div class="pdf-card" style="max-width:980px;">
+    <div class="pdf-head">
+      <div>
+        <div style="font-size:11px;color:var(--ink-3);font-family:var(--font-mono);">⚙️ 管线日志</div>
+        <div style="font-size:14px;font-weight:600;color:var(--ink);margin-top:2px;">
+          {{ jobLog.book ? shortBook(jobLog.book) : '全局' }} · {{ jobLog.stage }}
+          <span :style="{color: jobLog.status==='running' ? 'var(--teal)' : jobLog.status==='done' ? 'var(--ink-3)' : 'var(--rose)'}">[{{ jobLog.status }}]</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <label style="font-size:10px;color:var(--ink-3);display:flex;align-items:center;gap:4px;">
+          <input type="checkbox" v-model="jobLog.autoFollow"> 自动滚底
+        </label>
+        <button v-if="jobLog.status==='running'" class="btn sm" @click="cancelJob"
+                style="color:var(--rose);">⏹ 终止</button>
+        <button v-if="jobLog.status!=='running' && jobLog.book && jobLog.stage" class="btn sm pri" @click="retryJob">↻ 重试</button>
+        <button class="btn sm" @click="jobLog.open=false">✕ 关闭</button>
+      </div>
+    </div>
+    <pre ref="jobLogPre" class="job-log-pre">{{ jobLog.text || '(等待输出...)' }}</pre>
+  </div>
+</div>
+
 </div><!-- /#app -->
 
 <script>
@@ -1165,6 +1274,17 @@ createApp({
     const dcFilter = ref('all');
     const dcLimit = ref(50);
     const mergeStats = ref(null);
+    const compressTarget = ref(0.30);
+    const compressPresets = [
+      { v: 0.30, label: '精华 30%', hint: '只保留核心节点定义和关键关系，最紧凑' },
+      { v: 0.50, label: '复习 50%', hint: '保留更多关系描述，适合考前复习' },
+      { v: 0.80, label: '完整 80%', hint: '基本保留全部知识点，仅做去重' },
+    ];
+
+    const nodeSources = reactive({ loading: false, loaded: false, hits: [] });
+    const pdfPreview = reactive({ open: false, book: '', page: 1, url: '' });
+    const jobLog = reactive({ open: false, jobId: '', book: '', stage: '', status: '', text: '', autoFollow: true, _since: 0, _timer: null });
+    const jobLogPre = ref(null);
 
     const ragAsking = ref(false);
     const ragQuestion = ref('');
@@ -1655,6 +1775,97 @@ createApp({
       nextTick(() => askRag());
     }
 
+    /* ============= NODE SOURCE / PDF PREVIEW ============= */
+    async function loadNodeSources(n) {
+      if (!n) return;
+      nodeSources.loading = true; nodeSources.loaded = false; nodeSources.hits = [];
+      try {
+        // Try merged-node lookup first; fall back to per-book chunk search by name
+        let r = await api(`/api/source/node/${encodeURIComponent(n.id)}?limit=8`);
+        if (!r || !r.hits || !r.hits.length) {
+          // Fallback: search each book the node mentions
+          const books = (n.book_ids || []).slice(0, 4);
+          const all = [];
+          for (const b of books) {
+            const rr = await api(`/api/source/${encodeURIComponent(b)}/chunks?q=${encodeURIComponent(n.name||n.id)}&limit=3`);
+            if (rr?.hits) all.push(...rr.hits);
+          }
+          all.sort((a,b)=>(b.n_hits||0)-(a.n_hits||0));
+          r = { hits: all.slice(0, 8) };
+        }
+        nodeSources.hits = r.hits || [];
+      } catch (e) { console.error(e); }
+      nodeSources.loading = false; nodeSources.loaded = true;
+    }
+    watch(selectedNode, () => { nodeSources.hits = []; nodeSources.loaded = false; });
+
+    function openPdfPreview(book, page) {
+      pdfPreview.book = book;
+      pdfPreview.page = Math.max(1, Number(page) || 1);
+      pdfPreview.url = `/api/source/${encodeURIComponent(book)}/pdf#page=${pdfPreview.page}&zoom=page-fit`;
+      pdfPreview.open = true;
+    }
+    function refreshPdf() {
+      if (!pdfPreview.book) return;
+      pdfPreview.url = `/api/source/${encodeURIComponent(pdfPreview.book)}/pdf#page=${pdfPreview.page}&zoom=page-fit&t=${Date.now()}`;
+    }
+
+    /* ============= JOB / PIPELINE LOG ============= */
+    async function startJob(book_id, stage='all') {
+      const r = await api('/api/jobs/run', { method:'POST', body: JSON.stringify({ book_id, stage }) });
+      if (!r?.job_id) { toast('启动失败', 'err'); return; }
+      openJobLog(r.job_id, book_id, stage);
+    }
+    function openJobLog(jobId, book, stage) {
+      jobLog.jobId = jobId; jobLog.book = book || ''; jobLog.stage = stage || '';
+      jobLog.status = 'running'; jobLog.text = ''; jobLog._since = 0;
+      jobLog.open = true;
+      if (jobLog._timer) clearInterval(jobLog._timer);
+      jobLog._timer = setInterval(_pollJobLog, 1000);
+      _pollJobLog();
+    }
+    async function _pollJobLog() {
+      if (!jobLog.jobId) return;
+      try {
+        const meta = await api(`/api/jobs/${jobLog.jobId}`);
+        if (meta?.status) jobLog.status = meta.status;
+        const r = await fetch(`/api/jobs/${jobLog.jobId}/log?since=${jobLog._since}`);
+        const text = await r.text();
+        if (text) {
+          jobLog.text += text;
+          jobLog._since += new Blob([text]).size;
+          if (jobLog.autoFollow && jobLogPre.value) {
+            nextTick(() => { jobLogPre.value.scrollTop = jobLogPre.value.scrollHeight; });
+          }
+        }
+        if (jobLog.status !== 'running') {
+          clearInterval(jobLog._timer); jobLog._timer = null;
+          // Refresh book list & graph if relevant
+          if (jobLog.status === 'done') {
+            toast('管线完成', 'ok');
+            loadBooks();
+          } else if (jobLog.status === 'failed') {
+            toast('管线失败，看日志', 'err');
+          }
+        }
+      } catch (e) { console.error(e); }
+    }
+    async function cancelJob() {
+      if (!jobLog.jobId) return;
+      await api(`/api/jobs/${jobLog.jobId}/cancel`, { method:'POST' });
+      toast('已发送终止信号', 'ok');
+    }
+    async function retryJob() {
+      if (!jobLog.book) return;
+      const stage = jobLog.stage || 'all';
+      jobLog.text = ''; jobLog._since = 0; jobLog.status = 'running';
+      const r = await api('/api/jobs/run', { method:'POST', body: JSON.stringify({ book_id: jobLog.book, stage }) });
+      if (!r?.job_id) { toast('重试失败', 'err'); return; }
+      jobLog.jobId = r.job_id;
+      if (jobLog._timer) clearInterval(jobLog._timer);
+      jobLog._timer = setInterval(_pollJobLog, 1000);
+    }
+
     /* ============= SEARCH ============= */
     let searchT = null;
     function onSearch() {
@@ -1718,7 +1929,7 @@ createApp({
     }
     async function runCompress() {
       compressing.value = true;
-      const r = await api('/api/compress/run', { method: 'POST', body: JSON.stringify({ target_ratio: 0.30 }) });
+      const r = await api('/api/compress/run', { method: 'POST', body: JSON.stringify({ target_ratio: compressTarget.value }) });
       compressing.value = false;
       if (r) { cs.value = r; maybeRenderReportCharts(); toast(`压缩完成 ${(r.ratio*100).toFixed(1)}%`, 'ok'); }
       else toast('压缩失败', 'err');
@@ -1954,6 +2165,8 @@ createApp({
       activeTab, tabs, layout, graphMode, graphLoading, graphLoadingText, kgChart,
       selectedNode, selectedNeighbors,
       merging, compressing, decisions, dcFilter, dcLimit, mergeStats,
+      compressTarget, compressPresets,
+      nodeSources, pdfPreview, jobLog, jobLogPre,
       filteredDecisions,
       ragAsking, ragQuestion, ragMode, ragHistory, ragStatusText, ragSamples,
       chatAsking, chatInput, chatHistory, chatMsgs, sid, chatSamples,
@@ -1968,6 +2181,8 @@ createApp({
       onSearch, clearSearch, setLayout, rerender, toggleCat, toggleRel,
       resetFilters, resetView, exportPNG,
       openNode, focusNodeById, copyNodeJSON, copyText, askAboutNode,
+      loadNodeSources, openPdfPreview, refreshPdf,
+      startJob, openJobLog, cancelJob, retryJob,
       runMerge, runCompress, undoDecision, countByAction,
       askRag, onRagKey, renderPath,
       sendChat, onChatKey, undoChatEdit,
