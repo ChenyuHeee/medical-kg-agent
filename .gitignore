@@ -20,7 +20,7 @@ __pycache__/
 data/chat/
 data/chunks/
 data/errors/
-data/kg/
+data/kg/*.graphml
 data/logs/
 data/md/
 data/raw/
