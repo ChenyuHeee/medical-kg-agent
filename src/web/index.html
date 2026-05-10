@@ -1720,11 +1720,17 @@ createApp({
       if (data?.nodes) renderGraph(data.nodes, data.edges || []);
       else { renderMock(); toast('图谱数据缺失，已显示示例', 'err'); }
     }
+    function _wsBooksQS() {
+      const ws = activeWs.value;
+      if (!ws || ws.id === 'default' || !ws.book_ids?.length) return '';
+      return '?books=' + ws.book_ids.map(encodeURIComponent).join(',');
+    }
     async function loadGraphMerged() {
       graphMode.value='merged'; selectedBook.value=null;
-      graphLoading.value = true; graphLoadingText.value = '加载跨教材合并图（5000+ 节点，默认只看 Top 500）...';
+      const wsHint = activeWs.value && activeWs.value.id !== 'default' ? `「${activeWs.value.name}」 ` : '';
+      graphLoading.value = true; graphLoadingText.value = `加载${wsHint}跨教材合并图...`;
       try {
-        const data = await api('/api/graph/merged');
+        const data = await api('/api/graph/merged' + _wsBooksQS());
         if (data?.nodes?.length) {
           // 5000+ 节点全部画会卡；默认取高权重 Top 500 + 力导布局
           nodeLimit.value = 500;
@@ -1737,9 +1743,10 @@ createApp({
     }
     async function loadGraphCompact() {
       graphMode.value='compact'; selectedBook.value=null;
-      graphLoading.value = true; graphLoadingText.value = '加载精华图（~600 个核心节点）...';
+      const wsHint = activeWs.value && activeWs.value.id !== 'default' ? `「${activeWs.value.name}」 ` : '';
+      graphLoading.value = true; graphLoadingText.value = `加载${wsHint}精华图...`;
       try {
-        const data = await api('/api/graph/compact');
+        const data = await api('/api/graph/compact' + _wsBooksQS());
         if (data?.nodes?.length) {
           // 精华图本就是干货，全量展示 + 力导布局
           nodeLimit.value = 99999;
@@ -2375,6 +2382,9 @@ createApp({
       activeWsId.value = wid;
       await api(`/api/workspaces/${wid}/activate`, { method:'POST' });
       toast(`已切换到「${activeWs.value?.name || wid}」`, 'ok');
+      // Re-render graph in current mode using the new workspace's book_ids
+      if (graphMode.value === 'compact') loadGraphCompact();
+      else loadGraphMerged();
     }
     function openWsEditor(ws) {
       if (ws) { wsEditor.id = ws.id; wsEditor.name = ws.name; wsEditor.book_ids = [...ws.book_ids]; }
@@ -2506,7 +2516,10 @@ createApp({
       ragAsking.value = true;
       const sentQ = q; ragQuestion.value = '';
       autoGrowReset();
-      const r = await api('/api/rag/query', { method:'POST', body: JSON.stringify({ question: sentQ, k: 5, mode: ragMode.value }) });
+      const _wsBooks = (activeWs.value && activeWs.value.id !== 'default') ? activeWs.value.book_ids : null;
+      const _payload = { question: sentQ, k: 5, mode: ragMode.value };
+      if (_wsBooks?.length) _payload.book_ids = _wsBooks;
+      const r = await api('/api/rag/query', { method:'POST', body: JSON.stringify(_payload) });
       ragAsking.value = false;
       if (r) ragHistory.value.push({ q: sentQ, mode: ragMode.value, a: r, _exp: -1 });
       else { ragHistory.value.push({ q: sentQ, mode: ragMode.value, a: { answer: '⚠️ 请求失败，请检查后端日志或重试。' }, _exp:-1 }); toast('RAG 失败', 'err'); }

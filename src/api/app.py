@@ -474,6 +474,27 @@ def rag_status():
 
 # --------------- Graph & merge & compress ---------------
 
+# NOTE: static paths must be registered BEFORE the catch-all `/api/graph/{book_id}`,
+# otherwise FastAPI will match e.g. `merged` as a book_id and ignore query params.
+
+@app.get("/api/graph/merged")
+def get_merged(books: str | None = None):
+    p = KG_DIR / "merged.json"
+    if not p.exists():
+        raise HTTPException(404, "merged not built; call /api/merge/run")
+    doc = json.loads(p.read_text(encoding="utf-8"))
+    return JSONResponse(_filter_graph_by_books(doc, books))
+
+
+@app.get("/api/graph/compact")
+def get_compact(books: str | None = None):
+    p = KG_DIR / "compact.json"
+    if not p.exists():
+        raise HTTPException(404, "compact not built; call /api/compress/run")
+    doc = json.loads(p.read_text(encoding="utf-8"))
+    return JSONResponse(_filter_graph_by_books(doc, books))
+
+
 @app.get("/api/graph/{book_id}")
 def get_graph(book_id: str):
     p = KG_DIR / f"{book_id}.json"
@@ -482,20 +503,30 @@ def get_graph(book_id: str):
     return JSONResponse(json.loads(p.read_text(encoding="utf-8")))
 
 
-@app.get("/api/graph/merged")
-def get_merged():
-    p = KG_DIR / "merged.json"
-    if not p.exists():
-        raise HTTPException(404, "merged not built; call /api/merge/run")
-    return JSONResponse(json.loads(p.read_text(encoding="utf-8")))
-
-
-@app.get("/api/graph/compact")
-def get_compact():
-    p = KG_DIR / "compact.json"
-    if not p.exists():
-        raise HTTPException(404, "compact not built; call /api/compress/run")
-    return JSONResponse(json.loads(p.read_text(encoding="utf-8")))
+def _filter_graph_by_books(doc: dict, books_csv: str | None) -> dict:
+    """If books_csv is provided, keep only nodes whose `books` overlap the set,
+    plus edges whose endpoints both survived. No-op when books_csv falsy."""
+    if not books_csv:
+        return doc
+    keep = {b.strip() for b in books_csv.split(",") if b.strip()}
+    if not keep:
+        return doc
+    def _node_books(n: dict) -> set[str]:
+        bs = n.get("books") or n.get("book_ids") or []
+        if isinstance(bs, str):
+            bs = [bs]
+        bid = n.get("book_id")
+        if bid:
+            bs = list(bs) + [bid]
+        return {str(x) for x in bs}
+    nodes = [n for n in doc.get("nodes", []) if _node_books(n) & keep]
+    ids = {n["id"] for n in nodes}
+    edges = [e for e in doc.get("edges", []) if e.get("source") in ids and e.get("target") in ids]
+    out = dict(doc)
+    out["nodes"] = nodes
+    out["edges"] = edges
+    out["filtered_by_books"] = sorted(keep)
+    return out
 
 
 @app.post("/api/merge/run")
