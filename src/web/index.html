@@ -9,6 +9,13 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=LXGW+WenKai:wght@300;400;700&family=Geist+Mono:wght@400;500&family=Geist:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<script>
+  if (window['pdfjs-dist/build/pdf']) {
+    window.pdfjsLib = window['pdfjs-dist/build/pdf'];
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  }
+</script>
 <style>
 /* ============= DESIGN TOKENS ============= */
 :root {
@@ -411,6 +418,9 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
   background: var(--bg-warm);
 }
 .pdf-iframe { flex: 1; width: 100%; border: 0; background: var(--bg); }
+.pdf-canvas-wrap { flex: 1; overflow: auto; background: #525659; display:flex; align-items:flex-start; justify-content:center; padding: 16px; position: relative; }
+.pdf-canvas { background: white; box-shadow: 0 4px 16px rgba(0,0,0,.3); max-width: 100%; height: auto; }
+.pdf-status { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); color: #ddd; font-size: 13px; text-align: center; }
 .job-log-pre {
   flex: 1; margin: 0; padding: 14px 18px; background: #0d1117; color: #c9d1d9;
   font-family: var(--font-mono); font-size: 11px; line-height: 1.55;
@@ -809,12 +819,11 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
 
     <!-- empty stage / welcome -->
     <div v-if="!hasGraph && !graphLoading" class="empty-stage">
-      <div class="es-eyebrow">医学知识整合智能体 · Demo</div>
-      <div class="es-title">把 <em>7 本医学教材</em> 整合成<br/>一张可对话、可压缩的知识图谱</div>
+      <div class="es-eyebrow">7 本医学教材 · 一张知识网络</div>
+      <div class="es-title">同一知识点在不同教材里<br/>怎么讲的？<em>一目了然</em></div>
       <div class="es-sub">
-        我们读完了 7 本本科医学教材（解剖、组织胚胎、生理、微生物、病理、传染病、病理生理），
-        抽取出 <b>{{ welcomeStats.merged_nodes }}</b> 个知识点和 <b>{{ welcomeStats.merged_edges }}</b> 条关系，
-        跨教材去重，最终把内容压缩到原字符数的 <b>{{ welcomeStats.ratio_pct }}%</b>。
+        系统已读完 7 本教材（解剖、组织胚胎、生理、微生物、病理、传染病、病理生理），
+        自动梳理出知识点之间的前后依赖、包含关系，并去除了跨书重复——最终保留精华，覆盖原书 <b>{{ welcomeStats.ratio_pct }}%</b> 即可讲清楚核心内容。
       </div>
 
       <div class="es-cta">
@@ -1269,7 +1278,14 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
         <button class="btn sm" @click="pdfPreview.open=false">✕ 关闭</button>
       </div>
     </div>
-    <iframe v-if="pdfPreview.url" :key="pdfPreview.url" :src="pdfPreview.url" class="pdf-iframe"></iframe>
+    <div class="pdf-canvas-wrap">
+      <div v-if="pdfPreview.loading" class="pdf-status"><span class="spin"></span> 正在加载 PDF…</div>
+      <div v-if="pdfPreview.error" class="pdf-status" style="color:var(--rose);">
+        ⚠ 渲染失败：{{ pdfPreview.error }}<br>
+        <a :href="pdfPreview.url" target="_blank" style="color:var(--teal);">点此在新窗口打开</a>
+      </div>
+      <canvas ref="pdfCanvas" class="pdf-canvas" v-show="!pdfPreview.loading && !pdfPreview.error"></canvas>
+    </div>
   </div>
 </div>
 
@@ -1354,7 +1370,10 @@ createApp({
     ];
 
     const nodeSources = reactive({ loading: false, loaded: false, hits: [] });
-    const pdfPreview = reactive({ open: false, book: '', page: 1, url: '' });
+    const pdfPreview = reactive({ open: false, book: '', page: 1, url: '', loading: false, error: '' });
+    const pdfCanvas = ref(null);
+    const _pdfDocCache = new Map(); // book_id -> pdfjs document promise
+    let _pdfRenderTask = null;
     const jobLog = reactive({ open: false, jobId: '', book: '', stage: '', status: '', text: '', autoFollow: true, _since: 0, _timer: null });
     const jobLogPre = ref(null);
 
@@ -1933,12 +1952,50 @@ createApp({
     function openPdfPreview(book, page) {
       pdfPreview.book = book;
       pdfPreview.page = Math.max(1, Number(page) || 1);
-      pdfPreview.url = `/api/source/${encodeURIComponent(book)}/pdf#page=${pdfPreview.page}&zoom=page-fit`;
+      pdfPreview.url = `/api/source/${encodeURIComponent(book)}/pdf#page=${pdfPreview.page}`;
       pdfPreview.open = true;
+      nextTick(() => _renderPdfPage());
     }
     function refreshPdf() {
       if (!pdfPreview.book) return;
-      pdfPreview.url = `/api/source/${encodeURIComponent(pdfPreview.book)}/pdf#page=${pdfPreview.page}&zoom=page-fit&t=${Date.now()}`;
+      pdfPreview.url = `/api/source/${encodeURIComponent(pdfPreview.book)}/pdf#page=${pdfPreview.page}`;
+      _renderPdfPage();
+    }
+    async function _renderPdfPage() {
+      if (!window.pdfjsLib) { pdfPreview.error = 'PDF.js 未加载'; return; }
+      pdfPreview.loading = true; pdfPreview.error = '';
+      try {
+        const book = pdfPreview.book;
+        if (!_pdfDocCache.has(book)) {
+          const url = `/api/source/${encodeURIComponent(book)}/pdf`;
+          const task = window.pdfjsLib.getDocument({ url, disableAutoFetch: true, disableStream: false });
+          _pdfDocCache.set(book, task.promise);
+        }
+        const doc = await _pdfDocCache.get(book);
+        const pageNum = Math.min(Math.max(1, pdfPreview.page|0), doc.numPages);
+        pdfPreview.page = pageNum;
+        const pdfPage = await doc.getPage(pageNum);
+        const canvas = pdfCanvas.value;
+        if (!canvas) return;
+        const wrapW = (canvas.parentElement?.clientWidth || 800) - 32;
+        const baseVp = pdfPage.getViewport({ scale: 1 });
+        const scale = Math.min(2.0, wrapW / baseVp.width) * (window.devicePixelRatio || 1);
+        const viewport = pdfPage.getViewport({ scale });
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        canvas.style.width = (viewport.width / (window.devicePixelRatio || 1)) + 'px';
+        canvas.style.height = (viewport.height / (window.devicePixelRatio || 1)) + 'px';
+        if (_pdfRenderTask) { try { _pdfRenderTask.cancel(); } catch(_){} }
+        _pdfRenderTask = pdfPage.render({ canvasContext: canvas.getContext('2d'), viewport });
+        await _pdfRenderTask.promise;
+      } catch (e) {
+        if (e?.name !== 'RenderingCancelledException') {
+          pdfPreview.error = e?.message || String(e);
+          console.error('PDF render error', e);
+        }
+      } finally {
+        pdfPreview.loading = false;
+      }
     }
 
     /* ============= JOB / PIPELINE LOG ============= */
@@ -2360,7 +2417,7 @@ createApp({
       selectedNode, selectedNeighbors,
       merging, compressing, decisions, dcFilter, dcLimit, mergeStats,
       compressTarget, compressPresets,
-      nodeSources, pdfPreview, jobLog, jobLogPre,
+      nodeSources, pdfPreview, pdfCanvas, jobLog, jobLogPre,
       workspaces, activeWsId, activeWs, wsEditor,
       filteredDecisions,
       ragAsking, ragQuestion, ragMode, ragHistory, ragStatusText, ragSamples,
