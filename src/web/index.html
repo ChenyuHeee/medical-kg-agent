@@ -1539,6 +1539,11 @@ createApp({
           '确定进入管理模式吗？'
         );
         if (!ok) return;
+        // 线下部署（GitHub Pages 无后端）禁止进入管理模式
+        if (!backendOnline.value) {
+          toast('当前为线上演示版本，管理模式仅限本地部署使用', 'err');
+          return;
+        }
         const u = new URL(location.href);
         u.searchParams.set('admin', '1');
         location.href = u.toString();
@@ -2841,6 +2846,13 @@ createApp({
         chart?.resize(); _catEC?.resize(); _relEC?.resize();
       });
       await checkHealth();
+      // Force demo mode if backend is offline (GitHub Pages)
+      if (isAdmin.value && !backendOnline.value) {
+        const u = new URL(location.href);
+        u.searchParams.delete('admin');
+        location.replace(u.toString());
+        return;
+      }
       if (backendOnline.value) {
         await loadBooks();
         await loadWorkspaces();
