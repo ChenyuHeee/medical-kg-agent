@@ -786,7 +786,7 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
       <div class="group" title="布局">
         <button @click="setLayout('force')"    :class="{on:layout==='force'}">力导</button>
         <button @click="setLayout('circular')" :class="{on:layout==='circular'}">环形</button>
-        <button @click="setLayout('tree')"     :class="{on:layout==='tree'}" title="按 contains 关系展开层级">层级树</button>
+        <button @click="setLayout('tree')"     :class="{on:layout==='tree'}" title="按教材→实体类别→高频节点分层展示">层级树</button>
       </div>
       <div class="group" title="节点上限">
         <select v-model.number="nodeLimit" @change="rerender">
@@ -1706,53 +1706,73 @@ createApp({
     }
 
     /* ============= TREE LAYOUT ============= */
+    // 由于 LLM 抽取的 contains 方向不可靠（如"生长发育→生理学"），
+    // 树视图改用确定性的人造分层：教材 → 实体类别 → 高频节点。
     function _treeOption(nodes, edges) {
-      const visibleIds = new Set(nodes.filter(n => !hiddenCats.value.has(n.category||'其他')).map(n => n.id||n.name));
-      const nodeMap = new Map(nodes.map(n => [n.id||n.name, n]));
-      const children = new Map();
-      const hasParent = new Set();
-      edges.forEach(e => {
-        if (e.relation_type !== 'contains') return;
-        if (!visibleIds.has(e.source) || !visibleIds.has(e.target)) return;
-        if (!children.has(e.source)) children.set(e.source, new Set());
-        children.get(e.source).add(e.target);
-        hasParent.add(e.target);
-      });
-      let roots = [...visibleIds].filter(id => children.has(id) && !hasParent.has(id));
-      if (!roots.length) {
-        roots = [...visibleIds].map(id => nodeMap.get(id)).filter(Boolean)
-          .sort((a,b) => (b.n_mentions||0) - (a.n_mentions||0)).slice(0, 12).map(n => n.id||n.name);
-      }
-      const MAX_DEPTH = 4, MAX_CHILDREN = 12;
-      function build(id, depth, visited) {
-        const n = nodeMap.get(id) || { name: id };
-        if (depth > MAX_DEPTH || visited.has(id)) {
-          return { name: n.name, value: n.n_mentions||1, _raw: n, itemStyle:{ color: catColor(n.category) } };
-        }
-        visited.add(id);
-        const kids = [...(children.get(id)||[])]
-          .map(cid => nodeMap.get(cid)).filter(Boolean)
-          .sort((a,b) => (b.n_mentions||0)-(a.n_mentions||0))
-          .slice(0, MAX_CHILDREN);
-        return {
-          name: n.name, value: n.n_mentions||1, _raw: n,
-          itemStyle: { color: catColor(n.category) },
-          children: kids.map(k => build(k.id||k.name, depth+1, visited)),
-        };
-      }
-      const cands = roots.map(rid => {
-        const seen = new Set([rid]); const stack=[rid]; let size=0;
-        while (stack.length && size < 200) { const x = stack.pop(); size++; (children.get(x)||new Set()).forEach(c => { if (!seen.has(c)) { seen.add(c); stack.push(c); } }); }
-        return { rid, size };
-      }).sort((a,b) => b.size-a.size).slice(0, 6);
-      const treeData = cands.map(({rid}) => build(rid, 0, new Set()));
-      const finalData = treeData.length === 1 ? treeData : [{
-        name: '医学知识总览', itemStyle: { color: theme.value==='dark' ? '#f1efe8' : '#1a1a1a' },
-        children: treeData, label: { fontWeight: 700 },
-      }];
-      shownNodes.value = cands.length;
-      shownEdges.value = 0;
+      const visible = nodes.filter(n => !hiddenCats.value.has(n.category||'其他'));
       const isDark = theme.value === 'dark';
+      const TOP_PER_CAT = 8;
+
+      // book_id 显示名
+      const shortBookName = (b) => (b||'').replace(/^\d+_/, '');
+
+      // book → category → [node...]
+      const byBook = new Map();
+      visible.forEach(n => {
+        const books = (n.book_ids && n.book_ids.length) ? n.book_ids : ['未分书'];
+        books.forEach(bid => {
+          if (!byBook.has(bid)) byBook.set(bid, new Map());
+          const byCat = byBook.get(bid);
+          const cat = n.category || '其他';
+          if (!byCat.has(cat)) byCat.set(cat, []);
+          byCat.get(cat).push(n);
+        });
+      });
+
+      const bookEntries = [...byBook.entries()]
+        .map(([bid, byCat]) => {
+          const cats = [...byCat.entries()]
+            .map(([cat, ns]) => {
+              const sorted = ns.slice().sort((a,b) => (b.n_mentions||0) - (a.n_mentions||0));
+              const top = sorted.slice(0, TOP_PER_CAT);
+              const rest = sorted.length - top.length;
+              const children = top.map(n => ({
+                name: n.name, value: n.n_mentions || 1, _raw: n,
+                itemStyle: { color: catColor(n.category) },
+              }));
+              if (rest > 0) {
+                children.push({
+                  name: `… 还有 ${rest} 个`, value: rest,
+                  itemStyle: { color: isDark ? '#5a5f6d' : '#c4bfb6' },
+                  label: { color: isDark ? '#8a8f9d' : '#9a958c', fontStyle: 'italic' },
+                });
+              }
+              return {
+                name: `${cat} (${ns.length})`, value: ns.length,
+                itemStyle: { color: catColor(cat) },
+                label: { fontWeight: 600 },
+                children,
+              };
+            })
+            .sort((a,b) => b.value - a.value);
+          return {
+            name: shortBookName(bid), value: cats.reduce((s,c)=>s+c.value,0),
+            itemStyle: { color: isDark ? '#f1efe8' : '#1a1a1a' },
+            label: { fontWeight: 700, fontSize: 12 },
+            children: cats,
+          };
+        })
+        .sort((a,b) => b.value - a.value);
+
+      const finalData = bookEntries.length === 1 ? bookEntries : [{
+        name: '医学知识总览',
+        itemStyle: { color: isDark ? '#f1efe8' : '#1a1a1a' },
+        label: { fontWeight: 700 },
+        children: bookEntries,
+      }];
+
+      shownNodes.value = visible.length;
+      shownEdges.value = 0;
       return {
         backgroundColor: 'transparent',
         tooltip: {
@@ -1770,8 +1790,8 @@ createApp({
         },
         series: [{
           type: 'tree', data: finalData,
-          top: '4%', bottom: '14%', left: '6%', right: '20%',
-          symbolSize: 10, layout: 'orthogonal', orient: 'LR',
+          top: '3%', bottom: '8%', left: '8%', right: '22%',
+          symbolSize: 9, layout: 'orthogonal', orient: 'LR',
           initialTreeDepth: 2, roam: true, expandAndCollapse: true,
           label: { position: 'left', verticalAlign: 'middle', align: 'right', fontSize: 11, color: isDark?'#f1efe8':'#1a1a1a' },
           leaves: { label: { position: 'right', verticalAlign: 'middle', align: 'left', color: isDark?'#c4c0b3':'#4a4a4a' } },
