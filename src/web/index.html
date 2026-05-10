@@ -681,6 +681,11 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
     <span>{{ backendOnline ? 'API 在线' : '离线演示' }}</span>
   </div>
 
+  <button class="h-icon-btn" @click="toggleAdmin" :title="isAdmin ? '退出管理后台，回到演示模式' : '进入管理后台（上传教材 / 跑管线）'"
+          :style="isAdmin ? 'color:var(--amber);' : ''">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </button>
+
   <button class="h-icon-btn" @click="showHelp=true" title="键盘快捷键 (?)">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 4 2c-1 .8-1.5 1.5-1.5 3"/><circle cx="12" cy="17.5" r="1" fill="currentColor"/></svg>
   </button>
@@ -698,12 +703,12 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
   <!-- ============================== LEFT ============================== -->
   <aside class="panel left" :class="{collapsed: leftCollapsed}">
     <div class="panel-head">
-      <span>📚 教材管理</span>
+      <span>📚 教材{{ isAdmin ? '管理' : '' }}</span>
       <span class="ph-count">{{ books.length }} 本</span>
     </div>
     <div class="panel-body">
-      <!-- Workspace switcher -->
-      <div class="ws-bar">
+      <!-- Workspace switcher (admin only) -->
+      <div class="ws-bar" v-if="isAdmin">
         <div class="ws-row">
           <span style="font-size:10px;color:var(--ink-3);">工作区</span>
           <select v-model="activeWsId" @change="setActiveWorkspace(activeWsId)" class="ws-select">
@@ -719,7 +724,7 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
         </div>
       </div>
 
-      <div class="upload-zone" :class="{'drag-over': dragOver}"
+      <div class="upload-zone" v-if="isAdmin" :class="{'drag-over': dragOver}"
            @click="$refs.fileInput.click()"
            @dragover.prevent="dragOver=true"
            @dragleave="dragOver=false"
@@ -746,7 +751,7 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
           <span :class="['bbadge', b.stage||'unknown']">{{ stageText(b.stage) }}</span>
         </div>
         <div v-if="b.stage==='parsing'" class="progress"><div class="fill" :style="{width:(b.progress||30)+'%'}"></div></div>
-        <div style="display:flex;gap:4px;margin-top:6px;">
+        <div v-if="isAdmin" style="display:flex;gap:4px;margin-top:6px;">
           <button class="btn sm" style="flex:1;font-size:10px;padding:3px 6px;"
                   @click.stop="startJob(b.book_id, 'all')" :title="'运行完整管线（解析→抽取→构建）'">▶ 运行管线</button>
           <button class="btn sm" style="font-size:10px;padding:3px 6px;"
@@ -771,12 +776,12 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
         ✦ 整合精华图
       </button>
 
-      <div class="section-title">工作区操作</div>
-      <button class="btn sm" style="width:100%;justify-content:center;margin-bottom:4px;"
+      <div class="section-title" v-if="isAdmin">工作区操作</div>
+      <button v-if="isAdmin" class="btn sm" style="width:100%;justify-content:center;margin-bottom:4px;"
               @click="runWorkspaceMerge" :disabled="!activeWs || !activeWs.book_ids.length">
         ⚙ 跑整合（{{ activeWs?activeWs.book_ids.length:0 }} 本）
       </button>
-      <button class="btn sm" style="width:100%;justify-content:center;"
+      <button v-if="isAdmin" class="btn sm" style="width:100%;justify-content:center;"
               @click="runWorkspaceCompress" :disabled="!activeWs || !activeWs.book_ids.length">
         ✦ 跑压缩（当前工作区）
       </button>
@@ -1327,6 +1332,12 @@ createApp({
     const rightCollapsed = ref(false);
     const showHelp = ref(false);
     const backendOnline = ref(false);
+    const isAdmin = ref(new URLSearchParams(location.search).get('admin') === '1');
+    function toggleAdmin() {
+      const u = new URL(location.href);
+      if (isAdmin.value) u.searchParams.delete('admin'); else u.searchParams.set('admin','1');
+      location.href = u.toString();
+    }
 
     const books = ref([]);
     const bookFilter = ref('');
@@ -1338,12 +1349,15 @@ createApp({
     const searchInput = ref(null);
 
     const activeTab = ref('rag');
-    const tabs = [
-      { id:'rag',    label:'💬 提问' },
-      { id:'chat',   label:'🗣 对话' },
-      { id:'report', label:'📊 成果' },
-      { id:'merge',  label:'⚙ 扩展教材' },
-    ];
+    const tabs = computed(() => {
+      const base = [
+        { id:'rag',    label:'💬 提问' },
+        { id:'chat',   label:'🗣 对话' },
+        { id:'report', label:'📊 成果' },
+      ];
+      if (isAdmin.value) base.push({ id:'merge', label:'⚙ 扩展教材' });
+      return base;
+    });
 
     const layout = ref('force');
     const graphMode = ref('single');
@@ -2411,6 +2425,7 @@ createApp({
     return {
       // state
       theme, leftCollapsed, rightCollapsed, showHelp, backendOnline,
+      isAdmin, toggleAdmin,
       books, bookFilter, filteredBooks, selectedBook, dragOver,
       searchQuery, searchHits, searchInput,
       activeTab, tabs, layout, graphMode, graphLoading, graphLoadingText, kgChart,
