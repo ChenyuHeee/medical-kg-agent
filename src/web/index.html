@@ -332,6 +332,59 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
 .g-legend .all-btn { font-size: 9px; color: var(--ink-3); padding: 2px 8px; border-radius: 10px; cursor: pointer; }
 .g-legend .all-btn:hover { color: var(--teal); background: var(--teal-bg); }
 
+/* zoom indicator (right-bottom) */
+.g-zoom {
+  position: absolute; bottom: 64px; right: 14px; z-index: 10;
+  display: flex; align-items: center; gap: 2px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 16px; padding: 3px 4px;
+  box-shadow: var(--shadow-sm);
+  font-family: var(--font-mono); font-size: 10px; color: var(--ink-2);
+  user-select: none;
+}
+.g-zoom .zbtn {
+  width: 22px; height: 22px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; color: var(--ink-3); font-size: 13px; line-height: 1;
+  transition: var(--tx);
+}
+.g-zoom .zbtn:hover { background: var(--teal-bg); color: var(--teal); }
+.g-zoom .zpct { min-width: 42px; text-align: center; font-weight: 600; padding: 0 4px; cursor: pointer; }
+.g-zoom .zpct:hover { color: var(--teal); }
+
+/* first-visit onboarding hint for graph */
+.g-onboard {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 12;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-lg); padding: 12px 16px 12px 14px;
+  box-shadow: var(--shadow-lg);
+  display: flex; align-items: center; gap: 14px;
+  max-width: min(640px, calc(100% - 28px));
+  animation: pop .25s ease-out;
+}
+.g-onboard .ob-tip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--ink-2); white-space: nowrap;
+}
+.g-onboard .ob-tip .kbd {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+  padding: 2px 6px; border-radius: 6px;
+  background: var(--surface-hover); border: 1px solid var(--line);
+  color: var(--ink-2);
+}
+.g-onboard .ob-tip .ic { width: 14px; height: 14px; color: var(--teal); flex-shrink: 0; }
+.g-onboard .ob-sep { width: 1px; height: 18px; background: var(--line); flex-shrink: 0; }
+.g-onboard .ob-close {
+  background: none; border: none; color: var(--ink-3); font-size: 16px;
+  cursor: pointer; padding: 0 2px; line-height: 1; margin-left: 4px;
+  transition: var(--tx);
+}
+.g-onboard .ob-close:hover { color: var(--ink-1); }
+@media (max-width: 720px) {
+  .g-onboard { flex-wrap: wrap; gap: 8px 14px; }
+  .g-onboard .ob-sep { display: none; }
+}
+
 /* selected node detail card */
 .node-detail {
   position: absolute; bottom: 64px; right: 14px; z-index: 11;
@@ -970,6 +1023,17 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
 
     <div class="kg-scroll" ref="kgScroll">
       <div id="kg-chart" ref="kgChart"></div>
+      <!-- 首次进入：力导图操作引导（用户关闭后不再出现） -->
+      <div v-if="showGraphOnboard && hasGraph && layout!=='tree'" class="g-onboard">
+        <span class="ob-tip"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>滚轮 <span class="kbd">⇅</span> 缩放</span>
+        <span class="ob-sep"></span>
+        <span class="ob-tip"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9l-3 3 3 3"/><path d="M9 5l3-3 3 3"/><path d="M15 19l-3 3-3-3"/><path d="M19 9l3 3-3 3"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>按住拖拽平移</span>
+        <span class="ob-sep"></span>
+        <span class="ob-tip"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v6M12 17v6M4.22 4.22l4.24 4.24M15.54 15.54l4.24 4.24M1 12h6M17 12h6M4.22 19.78l4.24-4.24M15.54 8.46l4.24-4.24"/></svg>悬停节点/连线看详情</span>
+        <span class="ob-sep"></span>
+        <span class="ob-tip"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>点击节点选中并查看邻居</span>
+        <button class="ob-close" @click="dismissGraphOnboard" title="不再显示">×</button>
+      </div>
       <!-- 点击关系后固定的预览框 -->
       <div v-if="pinnedEdge" class="pinned-edge"
            :style="{ left: pinnedEdge.x + 'px', top: pinnedEdge.y + 'px' }"
@@ -992,6 +1056,13 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
       </span>
       <span class="sep"></span>
       <button class="all-btn" @click="resetFilters">全部显示</button>
+    </div>
+
+    <!-- zoom % indicator -->
+    <div class="g-zoom" v-if="hasGraph && layout!=='tree'">
+      <span class="zbtn" @click="zoomOut" title="缩小">−</span>
+      <span class="zpct" @click="zoomReset" title="点击重置为 100%">{{ zoomPct }}%</span>
+      <span class="zbtn" @click="zoomIn" title="放大">+</span>
     </div>
 
     <!-- selected node detail -->
@@ -1495,6 +1566,14 @@ createApp({
     const graphLoadingText = ref('加载中...');
     const kgChart = ref(null); const kgScroll = ref(null);
     let chart = null;
+    let _currentZoom = 1;
+    const zoomPct = ref(100);
+    // 首次访问图谱时显示操作引导（用户关闭后写入 localStorage 永久不再出现）
+    const showGraphOnboard = ref(localStorage.getItem('kg-onboard-dismissed') !== '1');
+    function dismissGraphOnboard() {
+      showGraphOnboard.value = false;
+      localStorage.setItem('kg-onboard-dismissed', '1');
+    }
     let _highlightedSearchIds = new Set();
 
     const selectedNode = ref(null); const catDetail = ref(null);
@@ -1849,6 +1928,15 @@ createApp({
           pinnedEdge.value = null;
         }
       });
+      // 缩放百分比跟踪：graphroam 事件携带 multiplier delta
+      chart.on('graphroam', (e) => {
+        if (e && typeof e.zoom === 'number' && e.zoom > 0) {
+          _currentZoom *= e.zoom;
+          if (_currentZoom < 0.01) _currentZoom = 0.01;
+          if (_currentZoom > 100) _currentZoom = 100;
+          zoomPct.value = Math.round(_currentZoom * 100);
+        }
+      });
     }
 
     function _doRender() {
@@ -2005,6 +2093,8 @@ createApp({
           edgeSymbol: ['none', 'arrow'], edgeSymbolSize: [0, 6],
         }],
       }, true);
+      // 重新渲染后重置缩放基线
+      _currentZoom = 1; zoomPct.value = 100;
 
       totalNodes.value = nodes.length;
       shownNodes.value = data.length;
@@ -2044,6 +2134,8 @@ createApp({
               dx: cw/2 - cx,
               dy: ch/2 - cy,
             });
+            // 把“适合视口”状态当作 100% 基线
+            _currentZoom = 1; zoomPct.value = 100;
           } catch(_) {}
         };
         // force 需要约 1.5s 完成大部分迭代
@@ -2198,6 +2290,23 @@ createApp({
       const url = chart.getDataURL({ pixelRatio: 2, backgroundColor: theme.value==='dark' ? '#0f1115' : '#faf7f2' });
       const a = document.createElement('a'); a.href = url; a.download = `knowledge-graph-${graphMode.value}.png`; a.click();
       toast('已导出 PNG', 'ok');
+    }
+    function _doZoom(factor) {
+      if (!chart) return;
+      const dom = kgChart.value; if (!dom) return;
+      // 围绕画布中心缩放
+      chart.dispatchAction({
+        type: 'graphRoam',
+        zoom: factor,
+        originX: dom.clientWidth / 2,
+        originY: dom.clientHeight / 2,
+      });
+    }
+    function zoomIn() { _doZoom(1.2); }
+    function zoomOut() { _doZoom(1/1.2); }
+    function zoomReset() {
+      if (!chart || _currentZoom === 1) return;
+      _doZoom(1 / _currentZoom);
     }
 
     /* ============= SELECTION ============= */
@@ -2772,6 +2881,8 @@ createApp({
       handleFiles, handleDrop, selectBook, loadGraphMerged, loadGraphCompact,
       onSearch, clearSearch, setLayout, rerender, toggleCat, toggleRel,
       resetFilters, resetView, exportPNG,
+      zoomPct, zoomIn, zoomOut, zoomReset,
+      showGraphOnboard, dismissGraphOnboard,
       openNode, focusNodeById, copyNodeJSON, copyText, askAboutNode,
       pdfHref, openPdf, apiUrl: _u,
       loadNodeSources, openPdfPreview, refreshPdf,

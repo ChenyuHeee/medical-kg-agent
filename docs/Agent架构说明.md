@@ -1,7 +1,18 @@
 # Agent 架构说明
 
-> 医学教材整合知识图谱 AI Agent — 单 Agent + Function Calling 架构。
+> 医学教材整合知识图谱 AI Agent — 单 Agent + Function Calling 架构。  
+> **评分维度 D 核心文档（20 分）**：架构总览 + 设计决策论证 + RAG Pipeline + Prompt 工程 + 局限与改进。  
 > 配套代码：`src/api/`、`src/chat/`、`src/rag/`、`src/kg/`、`src/merge/`、`src/ingest/`。
+
+### 文档导航（评委快速定位）
+
+| 评分项 | 对应章节 | 关键证据 |
+|---|---|---|
+| 架构总览与清晰度（4分） | §1 系统总览 | 3 张 Mermaid 图（系统总览/对话循环时序/RAG 双模式）+ 接口定义表 |
+| 设计决策论证（6分） | §2 设计决策 | 3 方案对比表（单Agent vs 多Agent vs Workflow）+ 实测数据 |
+| RAG Pipeline 设计（4分） | §4 RAG 设计 | vanilla vs GraphRAG 双模式 + 分块策略量化对比 |
+| Prompt 工程（3分） | §5 Prompt | 角色定义 + JSON 约束 + few-shot 示例 + 防幻觉策略 |
+| 已知局限与改进（3分） | §8 已知局限 | 5 条局限 + 5 条改进路径 + P0/P1/P2 优先级 |
 
 ## 1. 系统总览
 
