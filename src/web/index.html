@@ -819,7 +819,7 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
     <span style="font-size:11px;">ⓘ 只读模式</span>
   </div>
 
-  <div class="h-admin-tog" :class="{on: isAdmin}" @click="toggleAdmin"
+  <div v-if="!STATIC_MODE" class="h-admin-tog" :class="{on: isAdmin}" @click="toggleAdmin"
        :title="isAdmin ? '当前为管理后台，点击回到演示模式' : '当前为演示模式，点击进入管理后台（上传教材 / 跑管线）'">
     <span class="sw"></span>
     <span>{{ isAdmin ? '管理' : '演示' }}</span>
@@ -1554,7 +1554,8 @@ createApp({
     }
     const showHelp = ref(false);
     const backendOnline = ref(false);
-    const isAdmin = ref(new URLSearchParams(location.search).get('admin') === '1');
+    // 静态展示模式下强制禁用管理模式（即使 URL 携带 ?admin=1 也忽略）
+    const isAdmin = ref(!STATIC_MODE && new URLSearchParams(location.search).get('admin') === '1');
     function toggleAdmin() {
       if (isAdmin.value) {
         // 管理 → 演示：直接切
