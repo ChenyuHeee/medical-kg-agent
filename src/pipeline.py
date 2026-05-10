@@ -24,6 +24,10 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 
 P0_BOOKS = ["03_生理学", "07_病理生理学"]
+ALL_BOOKS = [
+    "01_局部解剖学", "02_组织学与胚胎学", "03_生理学",
+    "04_医学微生物学", "05_病理学", "06_传染病学", "07_病理生理学",
+]
 
 
 def _setup_logging():
@@ -57,30 +61,32 @@ def stage_build(book: str) -> None:
 
 
 def stage_merge(books: list[str]) -> None:
-    from .merge.align import merge_files
+    from .merge.align import merge_from_files
+    from .merge.compress import _to_json  # type: ignore
 
     paths = [DATA / "kg" / f"{b}.json" for b in books]
     missing = [p for p in paths if not p.exists()]
     if missing:
         sys.exit(f"missing graph json: {missing}")
+    merged, decisions, alias = merge_from_files(paths)
     out = DATA / "kg" / "merged.json"
-    stats = merge_files(paths, out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(_to_json(merged), ensure_ascii=False, indent=2), encoding="utf-8")
+    rep = DATA / "report"; rep.mkdir(parents=True, exist_ok=True)
+    (rep / "decisions.json").write_text(json.dumps(decisions, ensure_ascii=False, indent=2), encoding="utf-8")
+    (rep / "alias_table.json").write_text(json.dumps(alias, ensure_ascii=False, indent=2), encoding="utf-8")
+    stats = {"nodes": merged.number_of_nodes(), "edges": merged.number_of_edges(),
+             "decisions": len(decisions), "aliases": len(alias)}
     print(json.dumps({"stage": "merge", **stats}, ensure_ascii=False))
 
 
 def stage_compress(books: list[str], target: float = 0.30) -> None:
-    from .merge.compress import compress_file
+    from .merge.compress import run as compress_run
 
     merged = DATA / "kg" / "merged.json"
     if not merged.exists():
         sys.exit("merged.json missing; run merge first")
-    # input total = sum of per-book node counts
-    total = 0
-    for b in books:
-        gp = DATA / "kg" / f"{b}.json"
-        total += len(json.loads(gp.read_text("utf-8")).get("nodes", []))
-    out = DATA / "report" / "compression.json"
-    stats = compress_file(merged, out, input_total_nodes=total, target_ratio=target)
+    stats = compress_run(target_ratio=target)
     print(json.dumps({"stage": "compress", **stats}, ensure_ascii=False))
 
 
@@ -121,14 +127,14 @@ def main(argv: list[str] | None = None) -> int:
             sp.add_argument("--limit", type=int, default=None)
 
     sp = sub.add_parser("merge")
-    sp.add_argument("--books", nargs="+", default=P0_BOOKS)
+    sp.add_argument("--books", nargs="+", default=ALL_BOOKS)
 
     sp = sub.add_parser("compress")
-    sp.add_argument("--books", nargs="+", default=P0_BOOKS)
+    sp.add_argument("--books", nargs="+", default=ALL_BOOKS)
     sp.add_argument("--target", type=float, default=0.30)
 
     sp = sub.add_parser("report")
-    sp.add_argument("--books", nargs="+", default=P0_BOOKS)
+    sp.add_argument("--books", nargs="+", default=ALL_BOOKS)
 
     sp = sub.add_parser("run")
     sp.add_argument("--books", nargs="+", default=P0_BOOKS)

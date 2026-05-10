@@ -85,12 +85,26 @@ def build_report(
     if compressed:
         c = compressed.get("compression", compressed)
         lines.append("## 3. 内容压缩指标\n")
-        lines.append(f"- 单本节点数总和（原体量基准）：**{c['input_total_nodes']}**")
-        lines.append(f"- 合并后节点数：**{c['merged_nodes']}**")
-        lines.append(f"- 压缩后保留节点数：**{c['kept_nodes']}**（边 {c['kept_edges']}）")
-        lines.append(f"- **压缩率 (vs 原体量)：{c['node_ratio_vs_input']*100:.2f}%** "
-                     f"（目标 ≤ {c['target_ratio']*100:.0f}%；{'✅ 达标' if c['meets_target'] else '❌ 未达标'}）\n")
-        lines.append("> 口径：以**节点数**为体量度量。"
+        if "input_total_nodes" in c:
+            # legacy schema
+            lines.append(f"- 单本节点数总和（原体量基准）：**{c['input_total_nodes']}**")
+            lines.append(f"- 合并后节点数：**{c['merged_nodes']}**")
+            lines.append(f"- 压缩后保留节点数：**{c['kept_nodes']}**（边 {c['kept_edges']}）")
+            lines.append(f"- **压缩率 (vs 原体量)：{c['node_ratio_vs_input']*100:.2f}%** "
+                         f"（目标 ≤ {c['target_ratio']*100:.0f}%；{'✅ 达标' if c['meets_target'] else '❌ 未达标'}）\n")
+        else:
+            # current char-based schema (compress.run)
+            ratio = c.get("ratio", 0.0)
+            target = c.get("target_ratio", 0.30)
+            passed = c.get("passed", ratio <= target)
+            lines.append(f"- 原教材字符总量：**{c.get('original_chars', 0):,}**")
+            lines.append(f"- 整合后图谱字符量：**{c.get('merged_chars', 0):,}**"
+                         f"（节点定义 {c.get('node_definition_chars', 0):,} / 关系描述 {c.get('edge_description_chars', 0):,}）")
+            lines.append(f"- 合并图节点：**{c.get('merged_node_count', 0)}** / 边：**{c.get('merged_edge_count', 0)}**")
+            lines.append(f"- 精华图节点：**{c.get('compact_node_count', 0)}** / 边：**{c.get('compact_edge_count', 0)}**")
+            lines.append(f"- **压缩率 (vs 原体量)：{ratio*100:.2f}%** "
+                         f"（目标 ≤ {target*100:.0f}%；{'✅ 达标' if passed else '❌ 未达标'}）\n")
+        lines.append("> 口径：以**字符数**为体量度量。"
                      "压缩策略 = 跨书优先 + 提及频次 + 度中心性加权 Top-K。\n")
 
     lines.append("---\n")

@@ -778,13 +778,13 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
       </div>
 
       <div class="es-cta">
-        <button class="btn pri" @click="loadGraphMerged">
+        <button class="btn pri" @click.stop="loadGraphMerged">
           🌐 看跨教材整合图（推荐）
         </button>
-        <button class="btn" @click="loadGraphCompact">
+        <button class="btn" @click.stop="loadGraphCompact">
           ✦ 看压缩后的精华图
         </button>
-        <button class="btn" @click="activeTab='rag'">
+        <button class="btn" @click.stop="activeTab='rag'">
           💬 直接提问
         </button>
       </div>
@@ -1451,17 +1451,22 @@ createApp({
     async function loadGraphMerged() {
       graphMode.value='merged'; selectedBook.value=null;
       graphLoading.value = true; graphLoadingText.value = '加载合并图（5000+ 节点，可能需 1-2 秒）...';
-      const data = await api('/api/graph/merged');
+      try {
+        const data = await api('/api/graph/merged');
+        if (data?.nodes?.length) { renderGraph(data.nodes, data.edges || []); computeBookCoverage(data.nodes); }
+        else toast('合并图数据为空，请先执行跨教材对齐', 'err');
+      } catch(e) { toast('加载失败: '+e.message, 'err'); }
       graphLoading.value = false;
-      if (data?.nodes) renderGraph(data.nodes, data.edges || []);
-      computeBookCoverage(data?.nodes || []);
     }
     async function loadGraphCompact() {
       graphMode.value='compact'; selectedBook.value=null;
       graphLoading.value = true; graphLoadingText.value = '加载精华图...';
-      const data = await api('/api/graph/compact');
+      try {
+        const data = await api('/api/graph/compact');
+        if (data?.nodes?.length) renderGraph(data.nodes, data.edges || []);
+        else toast('精华图数据为空，请先执行压缩', 'err');
+      } catch(e) { toast('加载失败: '+e.message, 'err'); }
       graphLoading.value = false;
-      if (data?.nodes) renderGraph(data.nodes, data.edges || []);
     }
 
     const hasGraph = computed(() => cachedNodes.length > 0);
