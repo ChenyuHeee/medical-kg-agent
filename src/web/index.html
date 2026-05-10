@@ -1515,6 +1515,11 @@ createApp({
     const theme = ref(localStorage.getItem('theme') || 'light');
     const leftCollapsed = ref(false);
     const rightCollapsed = ref(false);
+    const isMobile = ref(window.innerWidth < 768);
+    function autoCollapse() {
+      isMobile.value = window.innerWidth < 768;
+      if (isMobile.value) { leftCollapsed.value = true; rightCollapsed.value = true; }
+    }
     const showHelp = ref(false);
     const backendOnline = ref(false);
     const isAdmin = ref(new URLSearchParams(location.search).get('admin') === '1');
@@ -2829,8 +2834,10 @@ createApp({
 
     /* ============= LIFECYCLE ============= */
     onMounted(async () => {
+      autoCollapse();
       window.addEventListener('keydown', onKey);
       window.addEventListener('resize', () => {
+        autoCollapse();
         chart?.resize(); _catEC?.resize(); _relEC?.resize();
       });
       await checkHealth();
