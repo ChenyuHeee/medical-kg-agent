@@ -1448,9 +1448,25 @@ createApp({
     const backendOnline = ref(false);
     const isAdmin = ref(new URLSearchParams(location.search).get('admin') === '1');
     function toggleAdmin() {
-      const u = new URL(location.href);
-      if (isAdmin.value) u.searchParams.delete('admin'); else u.searchParams.set('admin','1');
-      location.href = u.toString();
+      if (isAdmin.value) {
+        // 管理 → 演示：直接切
+        const u = new URL(location.href);
+        u.searchParams.delete('admin');
+        location.href = u.toString();
+      } else {
+        // 演示 → 管理：弹窗提示
+        const ok = confirm(
+          '⚠️ 进入管理模式\n\n' +
+          '当前演示模式已预加载 7 本医学教材，可以直接体验知识图谱、RAG 问答、多轮对话等全部功能。\n\n' +
+          '管理模式适用于上传新教材、重新运行解析管线等后台操作。多人同时使用管理模式可能导致任务冲突或数据覆盖。\n\n' +
+          '如果您是评委，建议留在演示模式。\n\n' +
+          '确定进入管理模式吗？'
+        );
+        if (!ok) return;
+        const u = new URL(location.href);
+        u.searchParams.set('admin', '1');
+        location.href = u.toString();
+      }
     }
 
     const books = ref([]);
