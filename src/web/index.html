@@ -219,6 +219,27 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
 
 /* ============= CENTER: GRAPH ============= */
 #kg-chart { width: 100%; height: 100%; }
+.kg-scroll { width: 100%; height: 100%; overflow-y: auto; overflow-x: auto; position: relative; }
+.pinned-edge {
+  position: absolute; z-index: 50;
+  max-width: 460px; max-height: 340px; overflow: auto;
+  background: var(--surface-1, #ffffff); color: var(--text-1, #1a1a1a);
+  border: 1px solid var(--border-1, #e7e0d4); border-radius: 10px;
+  padding: 10px 14px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.18);
+  font-size: 12px; line-height: 1.5;
+  word-break: break-word;
+}
+[data-theme="dark"] .pinned-edge { background: #1f2330; color: #f1efe8; border-color: #2a2f3d; }
+.pin-close {
+  position: absolute; top: 4px; right: 6px;
+  width: 22px; height: 22px; line-height: 18px; padding: 0;
+  background: transparent; color: inherit;
+  border: 1px solid transparent; border-radius: 6px;
+  cursor: pointer; font-size: 18px; opacity: .6;
+}
+.pin-close:hover { opacity: 1; background: rgba(0,0,0,.06); }
+[data-theme="dark"] .pin-close:hover { background: rgba(255,255,255,.08); }
 
 .g-toolbar {
   position: absolute; top: 14px; right: 14px; z-index: 10;
@@ -336,6 +357,34 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
 }
 .node-detail .nd-action:hover { background: var(--teal); color: white; }
 .node-detail .nd-section { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); margin-top: 10px; }
+
+/* cat-detail (tree category click list) */
+.cat-detail {
+  position: absolute; top: 60px; right: 14px; bottom: 14px; z-index: 11;
+  width: 280px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg); display:flex; flex-direction:column;
+  animation: fade .15s;
+}
+.cat-detail-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid var(--line);
+  font-weight: 600; font-size: 13px; flex-shrink: 0;
+}
+.cat-detail-head button {
+  width: 24px; height: 24px; border-radius: 50%; color: var(--ink-3);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.cat-detail-head button:hover { background: var(--surface-hover); color: var(--ink); }
+.cat-detail-list { flex: 1; overflow-y: auto; padding: 8px; }
+.cat-node-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 10px; border-radius: var(--r-sm); cursor: pointer;
+  transition: var(--tx); font-size: 12px; gap: 8px;
+}
+.cat-node-row:hover { background: var(--teal-bg); }
+.cnode-name { font-weight: 500; color: var(--ink); white-space: nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cnode-meta { font-size: 10px; color: var(--ink-3); flex-shrink: 0; }
 
 /* edge tooltip native */
 .edge-tip { font-family: var(--font-body); }
@@ -692,8 +741,10 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
 
   <div class="h-stat" v-if="totalNodes && hasGraph">
     <span>节点</span><span class="v">{{ shownNodes }}/{{ totalNodes }}</span>
-    <span style="color:var(--ink-4);">·</span>
-    <span>边</span><span class="v">{{ shownEdges }}</span>
+    <template v-if="layout!=='tree'">
+      <span style="color:var(--ink-4);">·</span>
+      <span>边</span><span class="v">{{ shownEdges }}</span>
+    </template>
   </div>
 
   <div class="h-stat">
@@ -835,6 +886,7 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
           <option :value="80">Top 80</option>
           <option :value="200">Top 200</option>
           <option :value="500">Top 500</option>
+          <option :value="1000">Top 1000</option>
           <option :value="1500">Top 1500</option>
           <option :value="99999">全部</option>
         </select>
@@ -904,7 +956,16 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
       <div class="lbl">{{ graphLoadingText }}</div>
     </div>
 
-    <div id="kg-chart" ref="kgChart"></div>
+    <div class="kg-scroll" ref="kgScroll">
+      <div id="kg-chart" ref="kgChart"></div>
+      <!-- 点击关系后固定的预览框 -->
+      <div v-if="pinnedEdge" class="pinned-edge"
+           :style="{ left: pinnedEdge.x + 'px', top: pinnedEdge.y + 'px' }"
+           @click.stop>
+        <button class="pin-close" @click="pinnedEdge = null" title="关闭">×</button>
+        <div v-html="pinnedEdge.html"></div>
+      </div>
+    </div>
 
     <!-- legend -->
     <div class="g-legend" v-if="hasGraph && layout!=='tree'">
@@ -972,6 +1033,23 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
       </div>
       <div v-if="nodeSources.loaded && (!nodeSources.hits || !nodeSources.hits.length)"
            style="margin-top:10px;font-size:10px;color:var(--ink-3);">未找到原文出处</div>
+    </div>
+
+    <!-- category node list (tree click) -->
+    <div v-if="catDetail" class="cat-detail">
+      <div class="cat-detail-head">
+        <span>{{ catDetail.name }}</span>
+        <button @click="catDetail=null">×</button>
+      </div>
+      <div class="cat-detail-list">
+        <div v-for="n in catDetail.nodes" :key="n.id||n.name" class="cat-node-row" @click="openNode(n); catDetail=null;">
+          <span class="cnode-name">{{ n.name }}</span>
+          <span class="cnode-meta">{{ n.n_mentions||0 }} 次 · {{ shortBook((n.book_ids||[''])[0]) }}</span>
+        </div>
+        <div v-if="catDetail.nodes.length >= 200" style="font-size:10px;color:var(--ink-3);text-align:center;padding:6px;">
+          仅显示前 200 个（共更多）
+        </div>
+      </div>
     </div>
   </main>
 
@@ -1380,15 +1458,15 @@ createApp({
       return base;
     });
 
-    const layout = ref('tree');
+    const layout = ref('force');
     const graphMode = ref('single');
     const graphLoading = ref(false);
     const graphLoadingText = ref('加载中...');
-    const kgChart = ref(null);
+    const kgChart = ref(null); const kgScroll = ref(null);
     let chart = null;
     let _highlightedSearchIds = new Set();
 
-    const selectedNode = ref(null);
+    const selectedNode = ref(null); const catDetail = ref(null);
     const selectedNeighbors = ref([]);
 
     const merging = ref(false);
@@ -1449,6 +1527,9 @@ createApp({
     const shownEdges = ref(0);
     const nodeLimit = ref(200);
     let cachedNodes = [], cachedEdges = [];
+
+    // 关系预览框（点击关系固定显示）
+    const pinnedEdge = ref(null);   // { html, x, y }
 
     const catList = ref([]);   // [{k,n}]
     const relList = ref([]);   // [{k,c,label,n}]
@@ -1520,9 +1601,16 @@ createApp({
       if (/^https?:\/\//i.test(path)) return path;
       return API_BASE + path;
     }
+    // localtunnel reminder bypass — silently waved by 'bypass-tunnel-reminder' header
+    const _LT = /\.loca\.lt(\/|$)/i.test(API_BASE);
+    function _hdrs(extra) {
+      const h = { ...(extra||{}) };
+      if (_LT) h['bypass-tunnel-reminder'] = '1';
+      return h;
+    }
     async function api(path, opts={}) {
       try {
-        const r = await fetch(_u(path), { headers:{'Content-Type':'application/json',...opts.headers}, ...opts });
+        const r = await fetch(_u(path), { headers:_hdrs({'Content-Type':'application/json',...opts.headers}), ...opts });
         if (!r.ok) {
           const txt = await r.text().catch(()=>'');
           throw new Error(`HTTP ${r.status} ${txt.slice(0,80)}`);
@@ -1554,7 +1642,7 @@ createApp({
     async function uploadFiles(files) {
       for (const f of files) {
         const fd = new FormData(); fd.append('file', f);
-        const r = await fetch(_u('/api/upload'), { method:'POST', body: fd });
+        const r = await fetch(_u('/api/upload'), { method:'POST', body: fd, headers:_hdrs() });
         const j = await r.json().catch(()=>null);
         if (j?.book_id) {
           books.value.push({ book_id: j.book_id, title: j.filename, total_chars: j.size, stage: 'uploaded' });
@@ -1595,25 +1683,38 @@ createApp({
       graphLoading.value = true; graphLoadingText.value = '加载知识图谱...';
       const data = await api('/api/graph/' + bid);
       graphLoading.value = false;
+      // 单本图一般 ≤ 500 节点，默认全量 + 层级树（讲一本书的完整结构）
+      nodeLimit.value = 99999;
+      layout.value = 'tree';
       if (data?.nodes) renderGraph(data.nodes, data.edges || []);
       else { renderMock(); toast('图谱数据缺失，已显示示例', 'err'); }
     }
     async function loadGraphMerged() {
       graphMode.value='merged'; selectedBook.value=null;
-      graphLoading.value = true; graphLoadingText.value = '加载合并图（5000+ 节点，可能需 1-2 秒）...';
+      graphLoading.value = true; graphLoadingText.value = '加载跨教材合并图（5000+ 节点，默认只看 Top 500）...';
       try {
         const data = await api('/api/graph/merged');
-        if (data?.nodes?.length) { renderGraph(data.nodes, data.edges || []); computeBookCoverage(data.nodes); }
+        if (data?.nodes?.length) {
+          // 5000+ 节点全部画会卡；默认取高权重 Top 500 + 力导布局
+          nodeLimit.value = 500;
+          layout.value = 'force';
+          renderGraph(data.nodes, data.edges || []); computeBookCoverage(data.nodes);
+        }
         else toast('合并图数据为空，请先执行跨教材对齐', 'err');
       } catch(e) { toast('加载失败: '+e.message, 'err'); }
       graphLoading.value = false;
     }
     async function loadGraphCompact() {
       graphMode.value='compact'; selectedBook.value=null;
-      graphLoading.value = true; graphLoadingText.value = '加载精华图...';
+      graphLoading.value = true; graphLoadingText.value = '加载精华图（~600 个核心节点）...';
       try {
         const data = await api('/api/graph/compact');
-        if (data?.nodes?.length) renderGraph(data.nodes, data.edges || []);
+        if (data?.nodes?.length) {
+          // 精华图本就是干货，全量展示 + 力导布局
+          nodeLimit.value = 99999;
+          layout.value = 'force';
+          renderGraph(data.nodes, data.edges || []);
+        }
         else toast('精华图数据为空，请先执行压缩', 'err');
       } catch(e) { toast('加载失败: '+e.message, 'err'); }
       graphLoading.value = false;
@@ -1661,10 +1762,37 @@ createApp({
         if (p.dataType === 'node') {
           openNode(p.data._raw || p.data);
         } else if (p.dataType === 'edge') {
-          // no-op (rely on tooltip)
+          // 点击关系：固定预览框（自定义 Vue 浮窗，不依赖 ECharts tooltip）
+          try {
+            const html = window.__kgBuildEdgeHTML?.(p.data._raw, p.data.source, p.data.target) || '';
+            const dom = kgChart.value;
+            const ev = p.event && p.event.event;
+            const rect = dom.getBoundingClientRect();
+            // 用鼠标位置（视口坐标）转成相对图表容器
+            let x = (ev?.clientX || rect.left + rect.width/2) - rect.left + 12;
+            let y = (ev?.clientY || rect.top + rect.height/2) - rect.top + 12;
+            // 边界保护：右/下溢出时贴边
+            const maxW = 460, maxH = 340;
+            if (x + maxW > rect.width) x = Math.max(8, rect.width - maxW - 8);
+            if (y + maxH > rect.height) y = Math.max(8, rect.height - maxH - 8);
+            pinnedEdge.value = { html, x, y };
+            // 隐藏 hover tooltip 避免重叠
+            chart.dispatchAction({ type: 'hideTip' });
+          } catch(_) {}
         } else {
           // tree click
           if (p.data && p.data._raw) openNode(p.data._raw);
+          else if (p.data && p.data._key) {
+            // Category node clicked → show node list
+            const list = window.__treeCatLookup?.[p.data._key] || [];
+            catDetail.value = { key: p.data._key, name: p.data.name, nodes: list.slice(0, 200) };
+          }
+        }
+      });
+      // 点击空白处关闭固定预览
+      chart.getZr().on('click', (e) => {
+        if (!e.target && pinnedEdge.value) {
+          pinnedEdge.value = null;
         }
       });
     }
@@ -1677,7 +1805,16 @@ createApp({
       if (layout.value === 'tree') {
         chart.setOption(_treeOption(nodes, edges), true);
         totalNodes.value = nodes.length;
+        // Tree expanded vertically per book→cat fan-out
+        const treeLeaves = (window.__treeCatLookup && Object.keys(window.__treeCatLookup).length) || 0;
+        const vpH = kgScroll.value?.clientHeight || 600;
+        const treeH = Math.max(vpH, treeLeaves * 24 + 100);
+        kgChart.value.style.height = treeH + 'px';
+        chart.resize();
         return;
+      } else {
+        kgChart.value.style.height = '100%';
+        chart.resize();
       }
 
       // filter by category
@@ -1696,19 +1833,31 @@ createApp({
       const cats = catList.value.map(c => ({ name: c.k, itemStyle: { color: catColor(c.k) } }));
       const catIdx = Object.fromEntries(catList.value.map((c,i) => [c.k, i]));
       const maxM = Math.max(1, ...filtNodes.map(n => n.n_mentions||1));
-      const labelThresh = Math.max(2, maxM * 0.4);
+      // 节点越多，标签门槛越高，避免画面被文字糊满
+      const nNodesAll = filtNodes.length;
+      const labelThresh = nNodesAll < 100 ? Math.max(2, maxM * 0.25)
+                       : nNodesAll < 400 ? Math.max(3, maxM * 0.45)
+                       : Math.max(4, maxM * 0.6);
 
       const data = filtNodes.map(n => {
         const cat = n.category || '其他';
+        const sz = 7 + Math.sqrt((n.n_mentions||1)/maxM) * 28;
         return {
           id: n.id || n.name,
           name: n.name,
-          symbolSize: 8 + Math.sqrt((n.n_mentions||1)/maxM) * 36,
+          symbolSize: sz,
           category: catIdx[cat] ?? 0,
           value: n.n_mentions || 0,
           label: {
             show: (n.n_mentions||0) >= labelThresh,
-            fontSize: 11, color: theme.value==='dark' ? '#f1efe8' : '#1a1a1a', fontWeight: 500
+            position: 'right',          // 标签放节点右侧，不再覆盖圆圈
+            distance: 4,
+            fontSize: 11,
+            color: theme.value==='dark' ? '#f1efe8' : '#1a1a1a',
+            fontWeight: 500,
+            backgroundColor: theme.value==='dark' ? 'rgba(26,29,39,.55)' : 'rgba(255,255,255,.7)',
+            padding: [2, 5],
+            borderRadius: 4,
           },
           itemStyle: { borderColor: theme.value==='dark' ? '#1a1d27' : '#fff', borderWidth: 1.2 },
           _raw: n,
@@ -1732,30 +1881,57 @@ createApp({
       }));
 
       const n = data.length;
-      const repulsion = n < 80 ? 350 : n < 250 ? 600 : n < 600 ? 950 : 1400;
-      const edgeLen   = n < 80 ? [80,160] : n < 250 ? [60,120] : n < 600 ? [40,90] : [30,70];
-      const gravity   = n < 250 ? 0.05 : n < 600 ? 0.1 : 0.15;
-
+      // 边 tooltip 用：source/target id → 节点原始数据
+      const nodeById = {};
+      filtNodes.forEach(nn => { nodeById[nn.id || nn.name] = nn; });
       const isDark = theme.value === 'dark';
+
+      // 共用：构造一条边的预览 HTML（tooltip 和点击固定预览都用它）
+      const buildEdgeHTML = (raw, srcId, tgtId) => {
+        const r = raw || {};
+        const sn = nodeById[srcId] || { name: srcId, category: '', definition: '' };
+        const tn = nodeById[tgtId] || { name: tgtId, category: '', definition: '' };
+        const relName = RELLABEL[r.relation_type] || r.relation_type;
+        const relC = relColor(r.relation_type);
+        const endpointBlock = (nd) => `
+          <div style="font-family:'Playfair Display',serif;font-size:13px;font-weight:600;word-break:break-word;">${nd.name}</div>
+          <div style="font-size:10px;color:${catColor(nd.category)};margin-bottom:3px;">${nd.category||'未分类'} · 🔁 ${nd.n_mentions||0} · 📘 ${(nd.book_ids||[]).length}</div>
+          <div style="font-size:11px;color:${isDark?'#c4c0b3':'#4a4a4a'};line-height:1.5;word-break:break-word;">${(nd.definition||'').slice(0,90) || '暂无定义'}</div>`;
+        return `<div style="font-weight:600;margin-bottom:6px;color:${relC};font-size:13px;word-break:break-word;line-height:1.4;">${sn.name} <span style="color:#8a857a;font-weight:400;">— ${relName} →</span> ${tn.name}</div>`+
+          `<div style="display:flex;gap:10px;align-items:flex-start;border-top:1px dashed ${isDark?'#2a2f3d':'#e7e0d4'};padding-top:6px;">`+
+            `<div style="flex:1;min-width:0;">${endpointBlock(sn)}</div>`+
+            `<div style="width:1px;background:${isDark?'#2a2f3d':'#e7e0d4'};align-self:stretch;"></div>`+
+            `<div style="flex:1;min-width:0;">${endpointBlock(tn)}</div>`+
+          `</div>`+
+          ((r.descriptions||[]).length ? `<div style="font-size:11px;color:${isDark?'#c4c0b3':'#4a4a4a'};margin-top:6px;border-top:1px dashed ${isDark?'#2a2f3d':'#e7e0d4'};padding-top:6px;word-break:break-word;line-height:1.5;"><span style="color:${relC};font-weight:600;">关系：</span>${((r.descriptions||[])[0]||'').slice(0,140)}</div>` : '')+
+          (r.book_ids?.length ? `<div style="font-size:10px;color:#8a857a;margin-top:4px;">📘 共出现于 ${r.book_ids.length} 本教材</div>` : '');
+      };
+      // 暴露给 click handler 用
+      window.__kgBuildEdgeHTML = buildEdgeHTML;
+
+      // 拉开间距：超过 200 节点时排斥也保留较大值，让网络更"透气"
+      const repulsion = n < 80 ? 320 : n < 250 ? 380 : n < 600 ? 280 : 220;
+      const edgeLen   = n < 80 ? [70,140] : n < 250 ? [80,150] : n < 600 ? [60,120] : [50,100];
+      const gravity   = n < 80 ? 0.06 : n < 250 ? 0.10 : n < 600 ? 0.18 : 0.28;
+
       chart.setOption({
         backgroundColor: 'transparent',
         tooltip: {
           trigger: 'item',
+          confine: true,                      // 不超出图表容器
+          enterable: false,
           backgroundColor: isDark ? '#1f2330' : '#ffffff',
           borderColor: isDark ? '#2a2f3d' : '#e7e0d4',
           textStyle: { color: isDark ? '#f1efe8' : '#1a1a1a', fontSize: 12 },
-          extraCssText: 'box-shadow:0 8px 32px rgba(0,0,0,.15);border-radius:10px;padding:10px 14px;',
+          extraCssText: 'box-shadow:0 8px 32px rgba(0,0,0,.15);border-radius:10px;padding:10px 14px;max-width:460px;max-height:340px;overflow:auto;white-space:normal;word-break:break-word;',
           formatter: (p) => {
             if (p.dataType === 'edge') {
-              const r = p.data._raw || {};
-              return `<div style="font-weight:600;margin-bottom:4px;color:${relColor(r.relation_type)}">${RELLABEL[r.relation_type]||r.relation_type}</div>`+
-                `<div style="font-size:11px;color:${isDark?'#c4c0b3':'#4a4a4a'}">${(r.descriptions||[]).slice(0,1).join('') || '—'}</div>`+
-                (r.book_ids?.length ? `<div style="font-size:10px;color:#8a857a;margin-top:4px;">📘 ${r.book_ids.length} 本教材</div>` : '');
+              return buildEdgeHTML(p.data._raw, p.data.source, p.data.target);
             }
             const r = p.data._raw || p.data;
-            return `<div style="font-family:'Playfair Display',serif;font-size:15px;font-weight:600;margin-bottom:3px;">${r.name}</div>`+
+            return `<div style="font-family:'Playfair Display',serif;font-size:15px;font-weight:600;margin-bottom:3px;word-break:break-word;line-height:1.3;">${r.name}</div>`+
               `<div style="font-size:10px;color:${catColor(r.category)};margin-bottom:5px;">${r.category||'未分类'}</div>`+
-              `<div style="font-size:11px;color:${isDark?'#c4c0b3':'#4a4a4a'};max-width:280px;line-height:1.6;">${(r.definition||'').slice(0,160) || '暂无定义'}</div>`+
+              `<div style="font-size:11px;color:${isDark?'#c4c0b3':'#4a4a4a'};line-height:1.6;word-break:break-word;">${(r.definition||'').slice(0,160) || '暂无定义'}</div>`+
               `<div style="font-size:10px;color:#8a857a;margin-top:6px;">🔁 ${r.n_mentions||0} 次 · 📘 ${(r.book_ids||[]).length} 本</div>`;
           },
         },
@@ -1771,7 +1947,7 @@ createApp({
             lineStyle: { width: 2.5, opacity: 1 },
             itemStyle: { shadowBlur: 18, shadowColor: 'rgba(13,148,136,.4)' },
           },
-          scaleLimit: { min: 0.2, max: 5 },
+          scaleLimit: { min: 0.05, max: 5 },
           edgeSymbol: ['none', 'arrow'], edgeSymbolSize: [0, 6],
         }],
       }, true);
@@ -1779,6 +1955,48 @@ createApp({
       totalNodes.value = nodes.length;
       shownNodes.value = data.length;
       shownEdges.value = links.length;
+
+      // 力导布局：等粒子收敛后把整张图缩放/平移到刚好填满视口
+      if (layout.value === 'force') {
+        const fitForceLayout = () => {
+          try {
+            const dom = kgChart.value;
+            if (!dom) return;
+            // 读取每个节点当前画布坐标（force 跑过几帧后已经填好）
+            const pts = [];
+            data.forEach(nd => {
+              const px = chart.convertToPixel({ seriesIndex: 0 }, nd.id);
+              if (px && isFinite(px[0]) && isFinite(px[1])) pts.push(px);
+            });
+            if (pts.length < 2) return;
+            let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+            pts.forEach(([x,y]) => {
+              if (x<minX) minX=x; if (y<minY) minY=y;
+              if (x>maxX) maxX=x; if (y>maxY) maxY=y;
+            });
+            const bw = Math.max(1, maxX-minX), bh = Math.max(1, maxY-minY);
+            const cw = dom.clientWidth, ch = dom.clientHeight;
+            // 留 10% 边距，取 width/height 缩放比的较小值
+            const k = Math.min((cw*0.9)/bw, (ch*0.9)/bh);
+            const cx = (minX+maxX)/2, cy = (minY+maxY)/2;
+            chart.dispatchAction({
+              type: 'graphRoam',
+              zoom: k,
+              originX: cx, originY: cy,
+            });
+            // 居中：平移让 bbox 中心对齐视口中心
+            chart.dispatchAction({
+              type: 'graphRoam',
+              dx: cw/2 - cx,
+              dy: ch/2 - cy,
+            });
+          } catch(_) {}
+        };
+        // force 需要约 1.5s 完成大部分迭代
+        setTimeout(fitForceLayout, 1500);
+        // 第二次再 fit 一下，处理慢机器
+        setTimeout(fitForceLayout, 3000);
+      }
 
       // re-apply search highlight if any
       if (searchQuery.value) onSearch();
@@ -1809,13 +2027,12 @@ createApp({
         .filter(n => !hiddenCats.value.has(n.category||'其他'))
         .filter(n => !_isNoiseNode(n));
       const isDark = theme.value === 'dark';
-      const TOP_PER_CAT = 5;
-      const MAX_CATS_PER_BOOK = 6;
+      const MAX_CATS_PER_BOOK = 30;
 
-      // book_id 显示名
       const shortBookName = (b) => (b||'').replace(/^\d+_/, '');
 
-      // book → category → [node...]
+      // Build lookup: book_id + category → node list (for detail panel)
+      const catLookup = {};
       const byBook = new Map();
       visible.forEach(n => {
         const books = (n.book_ids && n.book_ids.length) ? n.book_ids : ['未分书'];
@@ -1823,45 +2040,29 @@ createApp({
           if (!byBook.has(bid)) byBook.set(bid, new Map());
           const byCat = byBook.get(bid);
           const cat = n.category || '其他';
+          const key = `${bid}|||${cat}`;
+          if (!catLookup[key]) catLookup[key] = [];
+          catLookup[key].push(n);
           if (!byCat.has(cat)) byCat.set(cat, []);
           byCat.get(cat).push(n);
         });
       });
+      // Expose for detail panel
+      window.__treeCatLookup = catLookup;
 
+      // Build tree: only Book → Category (no individual nodes)
       const bookEntries = [...byBook.entries()]
         .map(([bid, byCat]) => {
           const cats = [...byCat.entries()]
-            .map(([cat, ns]) => {
-              const sorted = ns.slice().sort((a,b) => {
-                // multi-book first, then mention count, then has-definition
-                const mb = (b.book_ids?.length||1) - (a.book_ids?.length||1);
-                if (mb) return mb;
-                const mm = (b.n_mentions||0) - (a.n_mentions||0);
-                if (mm) return mm;
-                return ((b.definition||'').length>20?1:0) - ((a.definition||'').length>20?1:0);
-              });
-              const top = sorted.slice(0, TOP_PER_CAT);
-              const rest = sorted.length - top.length;
-              const children = top.map(n => ({
-                name: n.name, value: n.n_mentions || 1, _raw: n,
-                itemStyle: { color: catColor(n.category) },
-              }));
-              if (rest > 0) {
-                children.push({
-                  name: `… 还有 ${rest} 个`, value: rest,
-                  itemStyle: { color: isDark ? '#5a5f6d' : '#c4bfb6' },
-                  label: { color: isDark ? '#8a8f9d' : '#9a958c', fontStyle: 'italic' },
-                });
-              }
-              return {
-                name: `${cat} (${ns.length})`, value: ns.length,
-                itemStyle: { color: catColor(cat) },
-                label: { fontWeight: 600 },
-                children,
-              };
-            })
-            .sort((a,b) => b.value - a.value)
-            .slice(0, MAX_CATS_PER_BOOK);
+            .sort((a,b) => b[1].length - a[1].length)
+            .slice(0, MAX_CATS_PER_BOOK)
+            .map(([cat, ns]) => ({
+              name: `${cat}  (${ns.length} 个)`, value: ns.length,
+              itemStyle: { color: catColor(cat), borderColor: catColor(cat), borderWidth: 0 },
+              label: { fontWeight: 500, fontSize: 11 },
+              _key: `${bid}|||${cat}`,
+              // No children - keeps tree clean and fast
+            }));
           return {
             name: shortBookName(bid), value: cats.reduce((s,c)=>s+c.value,0),
             itemStyle: { color: isDark ? '#f1efe8' : '#1a1a1a' },
@@ -1871,8 +2072,9 @@ createApp({
         })
         .sort((a,b) => b.value - a.value);
 
+      const totalLabel = `医学知识总览 · ${visible.length} 个知识点`;
       const finalData = bookEntries.length === 1 ? bookEntries : [{
-        name: `医学知识总览（已过滤 ${nodes.length - visible.length} 个噪音节点）`,
+        name: totalLabel,
         itemStyle: { color: isDark ? '#f1efe8' : '#1a1a1a' },
         label: { fontWeight: 700 },
         children: bookEntries,
@@ -1897,9 +2099,11 @@ createApp({
         },
         series: [{
           type: 'tree', data: finalData,
-          top: '3%', bottom: '8%', left: '8%', right: '22%',
-          symbolSize: 8, layout: 'orthogonal', orient: 'LR',
+          top: '3%', bottom: '8%', left: '12%', right: '18%',
+          symbolSize: 7, layout: 'orthogonal', orient: 'LR',
+          nodeWidth: 50, nodeHeight: 24,
           initialTreeDepth: 2, roam: true, expandAndCollapse: true,
+          scaleLimit: { min: 0.05, max: 3 },
           label: { position: 'left', verticalAlign: 'middle', align: 'right', fontSize: 11, color: isDark?'#f1efe8':'#1a1a1a' },
           leaves: { label: { position: 'right', verticalAlign: 'middle', align: 'left', fontSize: 10, color: isDark?'#c4c0b3':'#4a4a4a' } },
           lineStyle: { color: isDark?'#3a3f4d':'#d4cfc6', width: 1, curveness: 0.5 },
@@ -2071,7 +2275,7 @@ createApp({
       try {
         const meta = await api(`/api/jobs/${jobLog.jobId}`);
         if (meta?.status) jobLog.status = meta.status;
-        const r = await fetch(_u(`/api/jobs/${jobLog.jobId}/log?since=${jobLog._since}`));
+        const r = await fetch(_u(`/api/jobs/${jobLog.jobId}/log?since=${jobLog._since}`), { headers:_hdrs() });
         const text = await r.text();
         if (text) {
           jobLog.text += text;
@@ -2469,7 +2673,8 @@ createApp({
       books, bookFilter, filteredBooks, selectedBook, dragOver,
       searchQuery, searchHits, searchInput,
       activeTab, tabs, layout, graphMode, graphLoading, graphLoadingText, kgChart,
-      selectedNode, selectedNeighbors,
+      pinnedEdge,
+      selectedNode, catDetail, selectedNeighbors,
       merging, compressing, decisions, dcFilter, dcLimit, mergeStats,
       compressTarget, compressPresets,
       nodeSources, pdfPreview, pdfCanvas, jobLog, jobLogPre,
