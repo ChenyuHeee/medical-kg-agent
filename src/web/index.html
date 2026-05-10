@@ -284,10 +284,13 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
   background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--r-lg); padding: 16px 18px;
   width: 320px; box-shadow: var(--shadow-lg);
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   animation: pop .2s ease-out;
 }
 @keyframes pop { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
-.node-detail .nd-close { position: absolute; top: 10px; right: 10px; width: 22px; height: 22px; border-radius: 50%; color: var(--ink-3); display:inline-flex; align-items:center; justify-content:center; }
+.node-detail .nd-close { position: sticky; float: right; top: 0; margin: -6px -6px 0 0; width: 24px; height: 24px; border-radius: 50%; color: var(--ink-3); background: var(--surface); display:inline-flex; align-items:center; justify-content:center; z-index: 2; }
 .node-detail .nd-close:hover { background: var(--surface-hover); color: var(--ink); }
 .node-detail .nd-name { font-family: var(--font-display); font-size: 18px; font-weight: 600; margin-bottom: 4px; padding-right: 24px; }
 .node-detail .nd-cat { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 10px; margin-bottom: 8px; font-weight: 500; }
