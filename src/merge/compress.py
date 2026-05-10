@@ -95,9 +95,18 @@ def compress(
     merged: nx.MultiDiGraph,
     original_chars: int,
     target_ratio: float = 0.30,
+    max_node_ratio: float = 0.30,
 ) -> tuple[nx.MultiDiGraph, dict]:
-    """Greedy compress merged graph; returns (compact_graph, stats)."""
+    """Greedy compress merged graph; returns (compact_graph, stats).
+
+    Two simultaneous caps:
+      - kept text chars  <=  original_chars * target_ratio  (content density)
+      - kept node count  <=  merged_nodes * max_node_ratio  (visual density)
+    Stop as soon as either cap is reached. This guarantees compact graph is
+    visibly smaller than merged even when merged is already char-sparse.
+    """
     target_chars = int(original_chars * target_ratio)
+    target_nodes = max(1, int(merged.number_of_nodes() * max_node_ratio))
     deg = {n: merged.degree(n) for n in merged.nodes()}
     ranked = sorted(
         merged.nodes(data=True),
@@ -108,7 +117,7 @@ def compress(
     cur = 0
     for n, d in ranked:
         c = _node_chars(d)
-        if cur + c > target_chars and len(kept) > 0:
+        if (cur + c > target_chars or len(kept) >= target_nodes) and len(kept) > 0:
             break
         kept.add(n)
         cur += c
@@ -157,13 +166,13 @@ def compute_original_chars(raw_dir: Path = Path("data/raw")) -> int:
     return total
 
 
-def run(target_ratio: float = 0.30) -> dict:
+def run(target_ratio: float = 0.30, max_node_ratio: float = 0.10) -> dict:
     merged_path = Path("data/kg/merged.json")
     if not merged_path.exists():
         raise FileNotFoundError("data/kg/merged.json — run align first")
     merged = _from_json(json.loads(merged_path.read_text(encoding="utf-8")))
     original = compute_original_chars()
-    sub, stats = compress(merged, original, target_ratio)
+    sub, stats = compress(merged, original, target_ratio, max_node_ratio)
 
     out_dir = Path("data/kg"); out_dir.mkdir(parents=True, exist_ok=True)
     rep_dir = Path("data/report"); rep_dir.mkdir(parents=True, exist_ok=True)

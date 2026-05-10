@@ -1,38 +1,35 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-venv/
-.env
-.env.*
-
-# Data artifacts (large, regenerable)
-data/raw/
-data/chunks/
-data/triples/
-data/kg/
-data/errors/
-data/md/
-data/vector/
-data/logs/
-data/uploads/
-data/chat/
-data/report/
-
-# External resources (large PDFs / submodule)
-textbooks/
-external/
 
 # Chroma sqlite
-*.sqlite3
-
+# Data artifacts (large, regenerable)
 # Editor / OS
-.DS_Store
-.idea/
-.vscode/
-
+# External resources (large PDFs / submodule)
 # Node (for viz)
-node_modules/
-dist/
+# Python
+*.egg-info/
+*.pdf
+*.py[cod]
+*.sqlite3
+.DS_Store
+.env
+.env.*
 .env.demo
+.idea/
+.venv/
+.vscode/
+__pycache__/
+data/chat/
+data/chunks/
+data/errors/
+data/kg/
+data/logs/
+data/md/
+data/raw/
+data/report/
+data/triples/
+data/uploads/
+data/vector/
+dist/
+external/
+node_modules/
+textbooks/
+venv/

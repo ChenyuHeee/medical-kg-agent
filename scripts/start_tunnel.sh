@@ -5,7 +5,8 @@ set -e
 cd "$(dirname "$0")/.."
 mkdir -p data/logs
 pkill -f 'localtunnel --port 8000' 2>/dev/null || true
-nohup npx -y localtunnel --port 8000 > data/logs/lt.log 2>&1 &
+SUB="${LT_SUBDOMAIN:-kg-agent-chenyu-510}"
+nohup npx -y localtunnel --port 8000 --subdomain "$SUB" > data/logs/lt.log 2>&1 &
 PID=$!
 echo "tunnel_pid=$PID"
 for i in 1 2 3 4 5 6 7 8 9 10; do

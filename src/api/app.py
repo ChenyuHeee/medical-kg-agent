@@ -227,8 +227,8 @@ def serve_pdf(book_id: str):
         str(p),
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'inline; filename="{safe}.pdf"',
-            # Allow browser PDF viewer to honor #page= fragments
+            # Use RFC 5987 filename* for non-ASCII names; ASCII fallback inline.
+            "Content-Disposition": "inline; filename=\"book.pdf\"; filename*=UTF-8''" + __import__('urllib.parse', fromlist=['quote']).quote(safe + '.pdf'),
             "Cache-Control": "public, max-age=3600",
         },
     )
