@@ -112,6 +112,26 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
 .h-icon-btn:hover { background: var(--surface-hover); color: var(--ink); }
 .h-icon-btn svg { width: 16px; height: 16px; }
 
+/* admin mode toggle (slider) */
+.h-admin-tog {
+  display:inline-flex; align-items:center; gap:8px; padding: 4px 10px 4px 8px;
+  border-radius: 999px; cursor: pointer; user-select: none;
+  background: var(--surface-2); border: 1px solid var(--line);
+  font-size: 11px; color: var(--ink-3); transition: var(--tx);
+}
+.h-admin-tog:hover { color: var(--ink); }
+.h-admin-tog .sw {
+  position: relative; width: 28px; height: 16px; border-radius: 999px;
+  background: var(--ink-4); transition: background var(--tx);
+}
+.h-admin-tog .sw::after {
+  content:''; position:absolute; top:2px; left:2px; width:12px; height:12px; border-radius:50%;
+  background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.25); transition: left var(--tx), background var(--tx);
+}
+.h-admin-tog.on { color: var(--amber); border-color: var(--amber-bd); background: var(--amber-bg); }
+.h-admin-tog.on .sw { background: var(--amber); }
+.h-admin-tog.on .sw::after { left: 14px; }
+
 /* ============= MAIN ============= */
 .main { flex: 1; display: flex; overflow: hidden; }
 .panel { display: flex; flex-direction: column; overflow: hidden; }
@@ -681,10 +701,11 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
     <span>{{ backendOnline ? 'API 在线' : '离线演示' }}</span>
   </div>
 
-  <button class="h-icon-btn" @click="toggleAdmin" :title="isAdmin ? '退出管理后台，回到演示模式' : '进入管理后台（上传教材 / 跑管线）'"
-          :style="isAdmin ? 'color:var(--amber);' : ''">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-  </button>
+  <div class="h-admin-tog" :class="{on: isAdmin}" @click="toggleAdmin"
+       :title="isAdmin ? '当前为管理后台，点击回到演示模式' : '当前为演示模式，点击进入管理后台（上传教材 / 跑管线）'">
+    <span class="sw"></span>
+    <span>{{ isAdmin ? '管理' : '演示' }}</span>
+  </div>
 
   <button class="h-icon-btn" @click="showHelp=true" title="键盘快捷键 (?)">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 4 2c-1 .8-1.5 1.5-1.5 3"/><circle cx="12" cy="17.5" r="1" fill="currentColor"/></svg>
