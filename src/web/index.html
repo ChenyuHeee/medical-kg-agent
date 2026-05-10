@@ -1708,8 +1708,27 @@ createApp({
     /* ============= TREE LAYOUT ============= */
     // 由于 LLM 抽取的 contains 方向不可靠（如"生长发育→生理学"），
     // 树视图改用确定性的人造分层：教材 → 实体类别 → 高频节点。
+    // 同时过滤明显的目录/元信息噪音（"…的学习方法"、"…发展简史" 等）。
+    const NOISE_PATTERNS = [
+      /学习方法$/, /发展简史$/, /研究方法$/, /研究历史$/,
+      /^第[一二三四五六七八九十百零\d]+(章|节|版|篇|部分)/,
+      /(目录|前言|序言|附录|参考文献|编委|致谢|主编|副主编|绪论|主审|顾问)$/,
+      /(的内容|的意义|的内容和意义|的概况|的范畴|的对象|的任务|的范围|的地位|的作用|的现状|的展望|的发展|的历史|的价值)$/,
+      /^(本章|本节|本书|教材|课程|大纲|纲要|提要|小结|总结|思考题|复习题|练习题|案例|病例|实验|实习|图\s*\d|表\s*\d)/,
+      /^[A-Za-z\s\d\.\-,;:]+$/, // pure ASCII (likely figure refs / artifacts)
+    ];
+    function _isNoiseNode(n) {
+      const name = (n.name || '').trim();
+      if (!name || name.length < 2 || name.length > 30) return true;
+      // entities with no definition AND single mention are usually OCR/extraction noise
+      if (!(n.definition || '').trim() && (n.n_mentions || 0) <= 1 && (n.book_ids || []).length <= 1) return true;
+      return NOISE_PATTERNS.some(re => re.test(name));
+    }
+
     function _treeOption(nodes, edges) {
-      const visible = nodes.filter(n => !hiddenCats.value.has(n.category||'其他'));
+      const visible = nodes
+        .filter(n => !hiddenCats.value.has(n.category||'其他'))
+        .filter(n => !_isNoiseNode(n));
       const isDark = theme.value === 'dark';
       const TOP_PER_CAT = 8;
 
@@ -1733,7 +1752,14 @@ createApp({
         .map(([bid, byCat]) => {
           const cats = [...byCat.entries()]
             .map(([cat, ns]) => {
-              const sorted = ns.slice().sort((a,b) => (b.n_mentions||0) - (a.n_mentions||0));
+              const sorted = ns.slice().sort((a,b) => {
+                // multi-book first, then mention count, then has-definition
+                const mb = (b.book_ids?.length||1) - (a.book_ids?.length||1);
+                if (mb) return mb;
+                const mm = (b.n_mentions||0) - (a.n_mentions||0);
+                if (mm) return mm;
+                return ((b.definition||'').length>20?1:0) - ((a.definition||'').length>20?1:0);
+              });
               const top = sorted.slice(0, TOP_PER_CAT);
               const rest = sorted.length - top.length;
               const children = top.map(n => ({
@@ -1765,11 +1791,42 @@ createApp({
         .sort((a,b) => b.value - a.value);
 
       const finalData = bookEntries.length === 1 ? bookEntries : [{
-        name: '医学知识总览',
+        name: `医学知识总览（已过滤 ${nodes.length - visible.length} 个噪音节点）`,
         itemStyle: { color: isDark ? '#f1efe8' : '#1a1a1a' },
         label: { fontWeight: 700 },
         children: bookEntries,
       }];
+
+      shownNodes.value = visible.length;
+      shownEdges.value = 0;
+      return {
+        backgroundColor: 'transparent',
+        tooltip: {
+          trigger: 'item',
+          backgroundColor: isDark?'#1f2330':'#fff',
+          borderColor: isDark?'#2a2f3d':'#e7e0d4',
+          textStyle: { color: isDark?'#f1efe8':'#1a1a1a', fontSize: 12 },
+          extraCssText:'box-shadow:0 8px 32px rgba(0,0,0,.15);border-radius:10px;',
+          formatter: (p) => {
+            const r = p.data._raw; if (!r) return p.data.name;
+            return `<div style="font-weight:600;margin-bottom:4px;">${r.name}</div>`+
+              `<div style="font-size:10px;color:${catColor(r.category)};margin-bottom:4px;">${r.category||''}</div>`+
+              `<div style="font-size:11px;color:${isDark?'#c4c0b3':'#4a4a4a'};max-width:260px;line-height:1.5;">${(r.definition||'').slice(0,120)}</div>`;
+          },
+        },
+        series: [{
+          type: 'tree', data: finalData,
+          top: '3%', bottom: '8%', left: '8%', right: '22%',
+          symbolSize: 9, layout: 'orthogonal', orient: 'LR',
+          initialTreeDepth: 2, roam: true, expandAndCollapse: true,
+          label: { position: 'left', verticalAlign: 'middle', align: 'right', fontSize: 11, color: isDark?'#f1efe8':'#1a1a1a' },
+          leaves: { label: { position: 'right', verticalAlign: 'middle', align: 'left', color: isDark?'#c4c0b3':'#4a4a4a' } },
+          lineStyle: { color: isDark?'#3a3f4d':'#d4cfc6', width: 1, curveness: 0.5 },
+          emphasis: { focus: 'descendant', itemStyle: { shadowBlur: 14, shadowColor: 'rgba(13,148,136,.4)' } },
+          animationDuration: 400,
+        }],
+      };
+    }
 
       shownNodes.value = visible.length;
       shownEdges.value = 0;
@@ -2299,17 +2356,16 @@ createApp({
       if (backendOnline.value) {
         await loadBooks();
         await loadWorkspaces();
-        // auto-load merged graph if present
+        // Preload stats for welcome screen (don't auto-render)
         const data = await api('/api/graph/merged');
         if (data?.nodes?.length) {
-          graphMode.value = 'merged';
-          renderGraph(data.nodes, data.edges || []);
           computeBookCoverage(data.nodes);
-        } else {
-          renderMock();
         }
-      } else {
-        renderMock();
+        // Also preload compact stats
+        const csData = await api('/api/compress/stats');
+        if (csData && !csData.detail) {
+          cs.value = csData;
+        }
       }
       setInterval(checkHealth, 30000);
     });
