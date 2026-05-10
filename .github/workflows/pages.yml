@@ -20,23 +20,7 @@ jobs:
       - name: Inject API base into index.html
         env:
           API_BASE: ${{ secrets.API_BASE }}
-        run: |
-          if [ -n "$API_BASE" ]; then
-            python3 -c "
-import os, re, pathlib
-p = pathlib.Path('src/web/index.html')
-s = p.read_text(encoding='utf-8')
-tag = f'<meta name=\"api-base\" content=\"{os.environ[\"API_BASE\"]}\">'
-if 'name=\"api-base\"' in s:
-  s = re.sub(r'<meta name=\"api-base\"[^>]*>', tag, s)
-else:
-  s = s.replace('<head>', '<head>\n    ' + tag, 1)
-p.write_text(s, encoding='utf-8')
-print('injected:', tag)
-"
-          else
-            echo 'API_BASE secret empty; skipping'
-          fi
+        run: python3 scripts/inject_api_base.py
       - name: Setup Pages
         uses: actions/configure-pages@v4
       - name: Upload artifact
