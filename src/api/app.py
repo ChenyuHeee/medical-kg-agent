@@ -33,6 +33,72 @@ app.add_middleware(
 )
 
 
+# --------------- Security: write-token + rate limit ---------------
+# When the API is exposed publicly (e.g. localtunnel), restrict mutations.
+# - All non-GET/HEAD/OPTIONS requests require header `X-Demo-Token` matching $DEMO_WRITE_TOKEN.
+# - A small allowlist of POSTs (read-like RPC: chat, rag query) is open to visitors.
+# - Per-IP token bucket on the open POSTs to prevent abuse.
+import os as _os
+import collections as _coll
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as _Req
+from starlette.responses import Response as _Resp, JSONResponse as _JR
+
+_WRITE_TOKEN = _os.environ.get("DEMO_WRITE_TOKEN", "").strip()
+# POSTs that visitors may call without a token (read-like)
+_OPEN_POSTS = {"/api/chat", "/api/chat/undo", "/api/rag/query"}
+# Per-IP rate limit: max N requests per WINDOW seconds for open POSTs
+_RL_MAX = int(_os.environ.get("DEMO_RL_MAX", "30"))
+_RL_WINDOW = int(_os.environ.get("DEMO_RL_WINDOW", "60"))
+_rl_hits: dict[str, _coll.deque] = {}
+_rl_lock = threading.Lock()
+
+# Cap upload size (bytes). Default 50 MB.
+MAX_UPLOAD_BYTES = int(_os.environ.get("DEMO_MAX_UPLOAD", str(50 * 1024 * 1024)))
+
+
+def _client_ip(req: _Req) -> str:
+    xff = req.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    return xff or (req.client.host if req.client else "?")
+
+
+def _rate_check(ip: str) -> bool:
+    now = time.time()
+    with _rl_lock:
+        dq = _rl_hits.setdefault(ip, _coll.deque())
+        while dq and now - dq[0] > _RL_WINDOW:
+            dq.popleft()
+        if len(dq) >= _RL_MAX:
+            return False
+        dq.append(now)
+        return True
+
+
+class GuardMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: _Req, call_next):
+        m = request.method.upper()
+        path = request.url.path
+        # Always allow safe methods and static / SPA assets
+        if m in ("GET", "HEAD", "OPTIONS"):
+            return await call_next(request)
+        ip = _client_ip(request)
+        is_local = ip in ("127.0.0.1", "::1", "localhost")
+        # Open POSTs: rate-limit only
+        if path in _OPEN_POSTS and not is_local:
+            if not _rate_check(ip):
+                return _JR({"error": "rate_limited", "retry_after": _RL_WINDOW}, status_code=429)
+        else:
+            # Require token for all other mutating endpoints
+            if not is_local:
+                tok = request.headers.get("x-demo-token", "")
+                if not _WRITE_TOKEN or tok != _WRITE_TOKEN:
+                    return _JR({"error": "forbidden", "detail": "write operations disabled in public demo"}, status_code=403)
+        return await call_next(request)
+
+
+app.add_middleware(GuardMiddleware)
+
+
 # --------------- Paths & state ---------------
 
 UPLOAD_DIR = Path("data/uploads"); UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -248,8 +314,19 @@ async def upload(file: UploadFile = File(...)):
         raise HTTPException(400, f"unsupported format: {ext}; allowed={sorted(ALLOWED_EXT)}")
     bid = Path(name).stem
     target = UPLOAD_DIR / name
+    written = 0
     with target.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            written += len(chunk)
+            if written > MAX_UPLOAD_BYTES:
+                f.close()
+                try: target.unlink()
+                except Exception: pass
+                raise HTTPException(413, f"file too large; max {MAX_UPLOAD_BYTES} bytes")
+            f.write(chunk)
     _BOOK_STATUS[bid] = {**_BOOK_STATUS.get(bid, {}), "book_id": bid, "uploaded": True, "format": ext, "size": target.stat().st_size, "stage": "uploaded"}
     return {"book_id": bid, "filename": name, "size": target.stat().st_size, "format": ext}
 
@@ -727,10 +804,32 @@ def job_cancel(job_id: str):
     return {"ok": True, "status": "cancelling"}
 
 
+# --------------- Textbook ---------------
+
+@app.get("/api/textbook")
+def get_textbook():
+    p = REPORT_DIR / "consolidated_textbook.md"
+    if not p.exists():
+        from ..merge.generate_textbook import load_merged, build_textbook
+        merged = load_merged()
+        text = build_textbook(merged)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+    return {"content": p.read_text(encoding="utf-8"), "path": str(p)}
+
+
 # --------------- Static frontend ---------------
 
 if WEB_DIR.exists():
     app.mount("/web", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
+
+
+@app.get("/textbook")
+def textbook_page():
+    p = WEB_DIR / "textbook.html"
+    if p.exists():
+        return FileResponse(str(p))
+    return JSONResponse({"error": "textbook.html not found"}, status_code=404)
 
 
 @app.get("/")

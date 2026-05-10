@@ -35,3 +35,4 @@ external/
 # Node (for viz)
 node_modules/
 dist/
+.env.demo

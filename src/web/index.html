@@ -914,6 +914,9 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
         <button class="btn" @click.stop="activeTab='rag'">
           💬 直接向教材提问
         </button>
+        <button class="btn" style="border-color:var(--indigo-bd);color:var(--indigo);" @click.stop="window.open('/web/textbook.html','_blank')">
+          📖 阅读整合教材
+        </button>
       </div>
 
       <div class="es-flow">
@@ -1590,6 +1593,9 @@ createApp({
     //   5) '' (same-origin, e.g. local dev)
     const _qsApi = new URLSearchParams(location.search).get('api');
     if (_qsApi !== null) localStorage.setItem('apiBase', _qsApi);
+    const _qsTok = new URLSearchParams(location.search).get('token');
+    if (_qsTok !== null) localStorage.setItem('demoToken', _qsTok);
+    const _DEMO_TOKEN = localStorage.getItem('demoToken') || '';
     const _metaApi = document.querySelector('meta[name="api-base"]')?.content || '';
     const API_BASE = (
       localStorage.getItem('apiBase')
@@ -1606,6 +1612,7 @@ createApp({
     function _hdrs(extra) {
       const h = { ...(extra||{}) };
       if (_LT) h['bypass-tunnel-reminder'] = '1';
+      if (_DEMO_TOKEN) h['X-Demo-Token'] = _DEMO_TOKEN;
       return h;
     }
     async function api(path, opts={}) {
