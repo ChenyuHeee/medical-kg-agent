@@ -111,6 +111,12 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
 }
 .h-icon-btn:hover { background: var(--surface-hover); color: var(--ink); }
 .h-icon-btn svg { width: 16px; height: 16px; }
+.h-textbook-btn {
+  font-size: 11px; font-weight: 500; color: var(--indigo);
+  text-decoration: none; padding: 5px 12px; border-radius: 8px;
+  border: 1px solid var(--indigo-bd); transition: var(--tx);
+}
+.h-textbook-btn:hover { background: var(--indigo-bg); }
 
 /* admin mode toggle (slider) */
 .h-admin-tog {
@@ -770,6 +776,7 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
   <button class="h-icon-btn" @click="rightCollapsed=!rightCollapsed" :title="rightCollapsed?'展开右侧面板':'折叠右侧面板'">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
   </button>
+  <a href="/textbook" target="_blank" class="h-textbook-btn" title="阅读整合教材">📖 整合教材</a>
 </header>
 
 <div class="main">
