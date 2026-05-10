@@ -62,11 +62,32 @@ def _scan_books() -> dict[str, dict[str, Any]]:
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
             st["title"] = d.get("title", bid)
-            st["total_chars"] = d.get("total_chars", 0)
-            st["chapters"] = len(d.get("chapters", []))
+            st["total_chars"] = d.get("total_chars") or d.get("n_chars") or 0
+            chapters = d.get("chapters") or d.get("toc") or []
+            st["chapters"] = len(chapters) if isinstance(chapters, list) else 0
         except Exception:
             pass
-        # Merge with progress tracker
+        # Fallback: derive size from chunks file if raw didn't expose it
+        if not st.get("total_chars") and st.get("chunks_exists"):
+            try:
+                cs = json.loads((CHUNKS_DIR / f"{bid}.json").read_text(encoding="utf-8"))
+                st["total_chars"] = sum(int(c.get("n_chars") or len(c.get("text", ""))) for c in cs)
+                if not st.get("chapters"):
+                    st["chapters"] = len({c.get("chapter") for c in cs if c.get("chapter")})
+            except Exception:
+                pass
+        # Derive pipeline stage
+        if st.get("kg_exists"):
+            st["stage"] = "kg_built"
+        elif st.get("triples_exists"):
+            st["stage"] = "extracted"
+        elif st.get("chunks_exists"):
+            st["stage"] = "chunked"
+        elif st.get("raw_exists"):
+            st["stage"] = "parsed"
+        else:
+            st["stage"] = "unknown"
+        # Merge with progress tracker (may override stage if a job is running)
         st.update(_BOOK_STATUS.get(bid, {}))
         out[bid] = st
     # Books with progress but no raw yet

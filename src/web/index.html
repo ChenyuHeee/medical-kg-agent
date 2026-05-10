@@ -177,6 +177,9 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
 .bbadge.failed   { background: var(--rose-bg); color: var(--rose); }
 .bbadge.uploaded { background: var(--surface-hover); color: var(--ink-3); }
 .bbadge.unknown  { background: var(--surface-hover); color: var(--ink-3); }
+.bbadge.chunked  { background: var(--indigo-bg); color: var(--indigo); }
+.bbadge.extracted{ background: var(--amber-bg); color: var(--amber); }
+.bbadge.kg_built { background: var(--teal-bg); color: var(--teal); }
 .book-item .progress {
   height: 2px; background: var(--line-2); border-radius: 1px; margin-top: 5px; overflow: hidden;
 }
@@ -1730,7 +1733,8 @@ createApp({
         .filter(n => !hiddenCats.value.has(n.category||'其他'))
         .filter(n => !_isNoiseNode(n));
       const isDark = theme.value === 'dark';
-      const TOP_PER_CAT = 8;
+      const TOP_PER_CAT = 5;
+      const MAX_CATS_PER_BOOK = 6;
 
       // book_id 显示名
       const shortBookName = (b) => (b||'').replace(/^\d+_/, '');
@@ -1780,7 +1784,8 @@ createApp({
                 children,
               };
             })
-            .sort((a,b) => b.value - a.value);
+            .sort((a,b) => b.value - a.value)
+            .slice(0, MAX_CATS_PER_BOOK);
           return {
             name: shortBookName(bid), value: cats.reduce((s,c)=>s+c.value,0),
             itemStyle: { color: isDark ? '#f1efe8' : '#1a1a1a' },
@@ -1817,41 +1822,10 @@ createApp({
         series: [{
           type: 'tree', data: finalData,
           top: '3%', bottom: '8%', left: '8%', right: '22%',
-          symbolSize: 9, layout: 'orthogonal', orient: 'LR',
+          symbolSize: 8, layout: 'orthogonal', orient: 'LR',
           initialTreeDepth: 2, roam: true, expandAndCollapse: true,
           label: { position: 'left', verticalAlign: 'middle', align: 'right', fontSize: 11, color: isDark?'#f1efe8':'#1a1a1a' },
-          leaves: { label: { position: 'right', verticalAlign: 'middle', align: 'left', color: isDark?'#c4c0b3':'#4a4a4a' } },
-          lineStyle: { color: isDark?'#3a3f4d':'#d4cfc6', width: 1, curveness: 0.5 },
-          emphasis: { focus: 'descendant', itemStyle: { shadowBlur: 14, shadowColor: 'rgba(13,148,136,.4)' } },
-          animationDuration: 400,
-        }],
-      };
-    }
-
-      shownNodes.value = visible.length;
-      shownEdges.value = 0;
-      return {
-        backgroundColor: 'transparent',
-        tooltip: {
-          trigger: 'item',
-          backgroundColor: isDark?'#1f2330':'#fff',
-          borderColor: isDark?'#2a2f3d':'#e7e0d4',
-          textStyle: { color: isDark?'#f1efe8':'#1a1a1a', fontSize: 12 },
-          extraCssText:'box-shadow:0 8px 32px rgba(0,0,0,.15);border-radius:10px;',
-          formatter: (p) => {
-            const r = p.data._raw; if (!r) return p.data.name;
-            return `<div style="font-weight:600;margin-bottom:4px;">${r.name}</div>`+
-              `<div style="font-size:10px;color:${catColor(r.category)};margin-bottom:4px;">${r.category||''}</div>`+
-              `<div style="font-size:11px;color:${isDark?'#c4c0b3':'#4a4a4a'};max-width:260px;line-height:1.5;">${(r.definition||'').slice(0,120)}</div>`;
-          },
-        },
-        series: [{
-          type: 'tree', data: finalData,
-          top: '3%', bottom: '8%', left: '8%', right: '22%',
-          symbolSize: 9, layout: 'orthogonal', orient: 'LR',
-          initialTreeDepth: 2, roam: true, expandAndCollapse: true,
-          label: { position: 'left', verticalAlign: 'middle', align: 'right', fontSize: 11, color: isDark?'#f1efe8':'#1a1a1a' },
-          leaves: { label: { position: 'right', verticalAlign: 'middle', align: 'left', color: isDark?'#c4c0b3':'#4a4a4a' } },
+          leaves: { label: { position: 'right', verticalAlign: 'middle', align: 'left', fontSize: 10, color: isDark?'#c4c0b3':'#4a4a4a' } },
           lineStyle: { color: isDark?'#3a3f4d':'#d4cfc6', width: 1, curveness: 0.5 },
           emphasis: { focus: 'descendant', itemStyle: { shadowBlur: 14, shadowColor: 'rgba(13,148,136,.4)' } },
           animationDuration: 400,
@@ -2304,7 +2278,7 @@ createApp({
     function fmtChars(n) { if (!n) return '—'; if (n > 10000) return (n/10000).toFixed(1)+'万'; return n.toLocaleString(); }
     function shortBook(b) { return (b||'').replace(/^\d+_/, ''); }
     function shortId(s) { return (s||'').slice(0, 24) + ((s||'').length>24?'…':''); }
-    function stageText(s) { return ({ parsed:'已解析', parsing:'解析中', queued:'排队', failed:'失败', uploaded:'已上传', unknown:'未处理' })[s] || s || '未处理'; }
+    function stageText(s) { return ({ kg_built:'已构图', extracted:'已抽取', chunked:'已分块', parsed:'已解析', parsing:'解析中', queued:'排队', failed:'失败', uploaded:'已上传', unknown:'未处理' })[s] || s || '未处理'; }
 
     /* ============= textarea autogrow ============= */
     function autoGrow(e) {
