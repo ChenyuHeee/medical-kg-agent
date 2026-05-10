@@ -21,6 +21,8 @@ jobs:
         env:
           API_BASE: ${{ secrets.API_BASE }}
         run: python3 scripts/inject_api_base.py
+      - name: Bake static demo data (read-only mode when no backend)
+        run: python3 scripts/build_static_demo.py
       - name: Setup Pages
         uses: actions/configure-pages@v4
       - name: Upload artifact

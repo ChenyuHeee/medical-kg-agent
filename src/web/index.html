@@ -810,7 +810,13 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
 
   <div class="h-stat">
     <span class="h-dot" :class="{off:!backendOnline}"></span>
-    <span>{{ backendOnline ? 'API 在线' : '离线演示' }}</span>
+    <span>{{ STATIC_MODE ? '静态展示' : (backendOnline ? 'API 在线' : '离线演示') }}</span>
+  </div>
+
+  <div v-if="STATIC_MODE" class="h-stat" style="cursor:pointer;color:var(--teal);"
+       @click="deployModal.path='ℹ️'; deployModal.open=true"
+       title="此版本无后端：图谱可交互，问答需克隆仓库本地部署">
+    <span style="font-size:11px;">ⓘ 只读模式</span>
   </div>
 
   <div class="h-admin-tog" :class="{on: isAdmin}" @click="toggleAdmin"
@@ -1419,6 +1425,32 @@ input::placeholder, textarea::placeholder { color: var(--ink-4); }
   <div v-for="t in toasts" :key="t.id" :class="['toast', t.kind]">{{ t.msg }}</div>
 </div>
 
+<!-- DEPLOY MODAL（静态展示模式：写入/对话需要本地后端） -->
+<div v-if="deployModal.open" class="help-overlay" @click.self="deployModal.open=false">
+  <div class="help-card" style="max-width:560px;" @click.stop>
+    <h2>🛠️ 此功能需要本地后端</h2>
+    <p style="margin:10px 0 6px;color:var(--ink-2);font-size:13px;line-height:1.6;">
+      当前页面是 <b>纯静态展示版</b>——你看到的 7 本教材整合知识图谱完全可交互，
+      但 <b>问答 / 对话 / 重新整合 / 上传新教材</b> 依赖 LLM 与向量检索，必须在你自己的机器上跑后端。
+    </p>
+    <div style="margin-top:12px;padding:10px 12px;background:var(--surface-hover);border-radius:var(--r-sm);font-size:11px;color:var(--ink-3);">
+      触发的接口：<code style="color:var(--teal);">{{ deployModal.path || '/api/...' }}</code>
+    </div>
+    <h3 style="margin-top:18px;font-size:13px;color:var(--ink-2);">⏱ 三步本地部署</h3>
+    <pre style="margin-top:8px;padding:12px 14px;background:#0f1115;color:#e8e8e8;border-radius:var(--r-sm);font-family:var(--font-mono);font-size:11px;line-height:1.7;overflow-x:auto;">git clone https://github.com/ChenyuHeee/medical-kg-agent.git
+cd medical-kg-agent
+docker compose up      <span style="color:#888;"># 或 pip install -r requirements.txt && uvicorn src.api.app:app</span></pre>
+    <p style="margin-top:10px;font-size:12px;color:var(--ink-3);line-height:1.6;">
+      启动后浏览器打开 <code style="color:var(--teal);">http://localhost:8000</code> 即获得完整功能；
+      或在当前页面 URL 后加 <code style="color:var(--teal);">?api=http://localhost:8000</code> 把这个静态前端指向你的后端。
+    </p>
+    <div style="margin-top:18px;display:flex;gap:8px;justify-content:flex-end;">
+      <a class="btn sm" href="https://github.com/ChenyuHeee/medical-kg-agent" target="_blank" rel="noopener">查看仓库</a>
+      <button class="btn sm pri" @click="deployModal.open=false">明白了</button>
+    </div>
+  </div>
+</div>
+
 <!-- WORKSPACE EDITOR -->
 <div v-if="wsEditor.open" class="help-overlay" @click.self="wsEditor.open=false">
   <div class="help-card" style="max-width:540px;" @click.stop>
@@ -1614,6 +1646,9 @@ createApp({
     const activeWsId = ref('default');
     const activeWs = computed(() => workspaces.value.find(w => w.id === activeWsId.value) || null);
     const wsEditor = reactive({ open: false, id: '', name: '', book_ids: [] });
+    // 静态展示模式弹窗
+    const deployModal = reactive({ open: false, path: '' });
+    window.__showDeployModal = (path) => { deployModal.path = path; deployModal.open = true; };
 
     const ragAsking = ref(false);
     const ragQuestion = ref('');
@@ -1738,6 +1773,48 @@ createApp({
     }
     // localtunnel reminder bypass — silently waved by 'bypass-tunnel-reminder' header
     const _LT = /\.loca\.lt(\/|$)/i.test(API_BASE);
+
+    // ============= STATIC DEMO MODE =============
+    // 当没有可用后端时（API_BASE 为空且非 localhost），切换到只读静态展示模式：
+    //   - GET 类接口从 ./data/api/*.json + ./data/kg/*.json 读取
+    //   - 写入/对话类接口弹出"克隆仓库本地部署"指引
+    const _isLocalHost = /^(localhost|127\.0\.0\.1|0\.0\.0\.0)/.test(location.hostname);
+    const _qsStatic = new URLSearchParams(location.search).get('static');
+    const STATIC_MODE = _qsStatic === '1' || (!API_BASE && !_isLocalHost);
+    if (STATIC_MODE) console.info('[KG] running in STATIC DEMO MODE (read-only, no backend)');
+
+    // 只读端点 → 静态文件映射
+    const STATIC_GET_MAP = {
+      '/healthz': 'data/api/healthz.json',
+      '/api/books': 'data/api/books.json',
+      '/api/rag/status': 'data/api/rag-status.json',
+      '/api/compress/stats': 'data/api/compress-stats.json',
+      '/api/decisions': 'data/api/decisions.json',
+      '/api/workspaces': 'data/api/workspaces.json',
+      '/api/graph/merged': 'data/kg/merged.json',
+      '/api/graph/compact': 'data/kg/compact.json',
+    };
+    function _resolveStatic(path) {
+      const base = path.split('?')[0];
+      if (STATIC_GET_MAP[base]) return STATIC_GET_MAP[base];
+      if (base.startsWith('/api/graph/')) {
+        const bid = decodeURIComponent(base.slice('/api/graph/'.length));
+        if (bid && !bid.includes('/')) return `data/kg/${encodeURIComponent(bid)}.json`;
+      }
+      return null;
+    }
+    // 提示用户：本功能需要后端，请克隆仓库本地部署
+    let _deployModalShown = false;
+    function showDeployModal(reason) {
+      // 通过 Vue 状态显示模态（在下方 setup 中绑定 deployModal ref）
+      if (window.__showDeployModal) {
+        window.__showDeployModal(reason || '');
+      } else {
+        // 兜底：原生 alert（理论上不会触发）
+        alert('该功能需要后端服务，请克隆仓库本地部署：\n\nhttps://github.com/ChenyuHeee/medical-kg-agent');
+      }
+    }
+
     function _hdrs(extra) {
       const h = { ...(extra||{}) };
       if (_LT) h['bypass-tunnel-reminder'] = '1';
@@ -1745,6 +1822,35 @@ createApp({
       return h;
     }
     async function api(path, opts={}) {
+      // 静态展示模式：拦截后端调用
+      if (STATIC_MODE) {
+        const method = (opts.method || 'GET').toUpperCase();
+        if (method === 'GET') {
+          const target = _resolveStatic(path);
+          if (target) {
+            try {
+              const r = await fetch(target);
+              if (!r.ok) throw new Error('HTTP ' + r.status);
+              const data = await r.json();
+              // 如有 ?books= 过滤，前端做一遍（与后端 _filter_graph_by_books 逻辑等价）
+              if (data && Array.isArray(data.nodes) && Array.isArray(data.edges)) {
+                const qs = path.split('?')[1] || '';
+                const booksParam = new URLSearchParams(qs).get('books');
+                if (booksParam) return _filterGraphClient(data, booksParam.split(',').map(s => s.trim()).filter(Boolean));
+              }
+              return data;
+            } catch(e) {
+              console.warn('[STATIC] fetch failed', target, e.message);
+              return null;
+            }
+          }
+          // 未映射的 GET：静默返回 null（避免噪音 toast）
+          return null;
+        }
+        // 写入类（POST/PUT/DELETE）：弹出部署指引
+        showDeployModal(path);
+        return null;
+      }
       try {
         const r = await fetch(_u(path), { headers:_hdrs({'Content-Type':'application/json',...opts.headers}), ...opts });
         if (!r.ok) {
@@ -1756,6 +1862,17 @@ createApp({
         console.warn('API error', path, e.message);
         return null;
       }
+    }
+    // 静态模式下的客户端图过滤（与 src/api/app.py::_filter_graph_by_books 等价）
+    function _filterGraphClient(doc, bookIds) {
+      const set = new Set(bookIds);
+      const keepNodes = (doc.nodes || []).filter(n => {
+        const bs = n.book_ids || n.books || n.source_books || (n.book_id ? [n.book_id] : []);
+        return bs.some(b => set.has(b));
+      });
+      const keepIds = new Set(keepNodes.map(n => n.id || n.name));
+      const keepEdges = (doc.edges || []).filter(e => keepIds.has(e.source) && keepIds.has(e.target));
+      return { ...doc, nodes: keepNodes, edges: keepEdges, filtered_by_books: bookIds };
     }
 
     async function checkHealth() {
@@ -1776,6 +1893,7 @@ createApp({
 
     /* ============= UPLOAD ============= */
     async function uploadFiles(files) {
+      if (STATIC_MODE) { showDeployModal('/api/upload'); return; }
       for (const f of files) {
         const fd = new FormData(); fd.append('file', f);
         const r = await fetch(_u('/api/upload'), { method:'POST', body: fd, headers:_hdrs() });
@@ -2887,6 +3005,7 @@ createApp({
       compressTarget, compressPresets,
       nodeSources, pdfPreview, pdfCanvas, jobLog, jobLogPre,
       workspaces, activeWsId, activeWs, wsEditor,
+      deployModal, STATIC_MODE,
       filteredDecisions,
       ragAsking, ragQuestion, ragMode, ragHistory, ragStatusText, ragSamples,
       chatAsking, chatInput, chatHistory, chatMsgs, sid, chatSamples,
